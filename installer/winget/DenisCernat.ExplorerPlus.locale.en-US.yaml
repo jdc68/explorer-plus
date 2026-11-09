@@ -1,0 +1,19 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+PackageIdentifier: DenisCernat.ExplorerPlus
+PackageVersion: {version}
+PackageLocale: en-US
+Publisher: Denis Cernat
+PackageName: Explorer+
+License: Proprietary
+ShortDescription: A fast, keyboard-friendly file manager for Windows 11.
+Description: |-
+  Explorer+ replaces File Explorer: tabs, the full shell namespace (This PC, Recycle Bin, Network, phones, zip, WSL),
+  native context menus without the bloat, folder sizes, content-aware views, Starred items and Windows Search.
+  It can optionally become the default file manager for folders and Win+E.
+Moniker: explorerplus
+Tags:
+  - file-manager
+  - explorer
+  - tabs
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

@@ -1,0 +1,77 @@
+<Application x:Class="ExplorerPlus.App.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:ExplorerPlus.App.Views"
+             ThemeMode="System"
+             ShutdownMode="OnExplicitShutdown">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="Themes/FileList.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <FontFamily x:Key="IconFont">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
+
+            <BooleanToVisibilityConverter x:Key="BoolToVis" />
+            <views:InverseBoolToVisibilityConverter x:Key="InverseBoolToVis" />
+            <views:NullToVisibilityConverter x:Key="NullToVis" />
+            <views:EmptyStringToVisibilityConverter x:Key="EmptyToVis" />
+            <views:NonEmptyStringToVisibilityConverter x:Key="NonEmptyToVis" />
+
+            <!-- Flat icon button used in the navigation and command bars. -->
+            <Style x:Key="IconButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="Padding" Value="8,6" />
+                <Setter Property="MinWidth" Value="34" />
+                <Setter Property="MinHeight" Value="32" />
+                <Setter Property="FontFamily" Value="{StaticResource IconFont}" />
+                <Setter Property="FontSize" Value="14" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+                <Setter Property="Focusable" Value="False" />
+            </Style>
+
+            <!-- Menus and tooltips of icon buttons would otherwise inherit the icon font and show boxes instead of text. -->
+            <Style TargetType="ContextMenu" BasedOn="{StaticResource {x:Type ContextMenu}}">
+                <Setter Property="FontFamily" Value="{x:Static SystemFonts.MessageFontFamily}" />
+            </Style>
+            <Style TargetType="ToolTip" BasedOn="{StaticResource {x:Type ToolTip}}">
+                <Setter Property="FontFamily" Value="{x:Static SystemFonts.MessageFontFamily}" />
+            </Style>
+
+            <Style x:Key="CommandButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="Padding" Value="8,5" />
+                <Setter Property="MinHeight" Value="32" />
+                <Setter Property="Margin" Value="1,0" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+                <Setter Property="Focusable" Value="False" />
+            </Style>
+            <Style x:Key="StatusToggle" TargetType="ToggleButton">
+                <Setter Property="FontFamily" Value="{StaticResource IconFont}" />
+                <Setter Property="FontSize" Value="13" />
+                <Setter Property="Focusable" Value="False" />
+                <Setter Property="Width" Value="28" />
+                <Setter Property="Height" Value="24" />
+                <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ToggleButton">
+                            <Border x:Name="Bd" CornerRadius="4" Background="Transparent">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Bd" Property="Background" Value="{DynamicResource SubtleFillColorSecondaryBrush}" />
+                                </Trigger>
+                                <Trigger Property="IsChecked" Value="True">
+                                    <Setter TargetName="Bd" Property="Background" Value="{DynamicResource SubtleFillColorTertiaryBrush}" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

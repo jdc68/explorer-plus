@@ -1,0 +1,17 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>ExplorerPlus</AssemblyName>
+    <RootNamespace>ExplorerPlus.App</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\ExplorerPlus.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ExplorerPlus.Core\ExplorerPlus.Core.csproj" />
+    <ProjectReference Include="..\ExplorerPlus.Interop\ExplorerPlus.Interop.csproj" />
+  </ItemGroup>
+
+</Project>

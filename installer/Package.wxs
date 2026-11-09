@@ -1,0 +1,58 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <!--
+    Per-user MSI: installs to %LocalAppData%\Programs\Explorer+ without admin rights, adds a Start menu shortcut with
+    the app's AppUserModelID (so the taskbar button and jump list group with it), and on uninstall gives folders back to
+    File Explorer if Explorer+ was made the default file manager.
+  -->
+  <Package Name="Explorer+" Manufacturer="Denis Cernat" Version="$(var.ProductVersion)"
+           UpgradeCode="1727c5fb-2cab-40f9-8972-682d1585ca16" Scope="perUser" Compressed="yes" InstallerVersion="500">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Explorer+ is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="AppIcon" SourceFile="$(var.IconFile)" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsFolder" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="Explorer+" />
+      </Directory>
+    </StandardDirectory>
+
+    <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
+      <Files Include="$(var.PublishDir)\**" />
+      <Component Id="InstallFolderCleanup" Guid="3d1d3b1e-63d6-4b0a-9a7e-2f1f4f0e9b21">
+        <RemoveFolder Id="RemoveInstallFolder" Directory="INSTALLFOLDER" On="uninstall" />
+        <RemoveFolder Id="RemoveProgramsFolder" Directory="ProgramsFolder" On="uninstall" />
+        <RegistryValue Root="HKCU" Key="Software\ExplorerPlus\Install" Name="Path" Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="StartMenuShortcut" Guid="9b7c0b1e-2f5a-4d43-8f0e-6a4b5d2c1e77">
+        <Shortcut Id="AppShortcut" Name="Explorer+" Description="A fast file manager for Windows"
+                  Target="[INSTALLFOLDER]ExplorerPlus.exe" WorkingDirectory="INSTALLFOLDER">
+          <ShortcutProperty Key="System.AppUserModel.ID" Value="ExplorerPlus" />
+        </Shortcut>
+        <RegistryValue Root="HKCU" Key="Software\ExplorerPlus\Install" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <!--
+      On uninstall (not on upgrade), undo the "default file manager" switch while the exe is still there; otherwise
+      folder links and Win+E would point at a program that no longer exists.
+    -->
+    <CustomAction Id="UnregisterDefault" Directory="INSTALLFOLDER" ExeCommand="&quot;[INSTALLFOLDER]ExplorerPlus.exe&quot; --unregister-default"
+                  Execute="deferred" Impersonate="yes" Return="ignore" />
+    <InstallExecuteSequence>
+      <Custom Action="UnregisterDefault" Before="RemoveFiles" Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+    </InstallExecuteSequence>
+
+    <Feature Id="Main" Title="Explorer+">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+  </Package>
+</Wix>

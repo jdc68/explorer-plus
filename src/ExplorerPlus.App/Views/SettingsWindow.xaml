@@ -1,0 +1,171 @@
+<Window x:Class="ExplorerPlus.App.Views.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Settings - Explorer+" Width="760" Height="720" MinWidth="480" MinHeight="360"
+        UseLayoutRounding="True" TextOptions.TextFormattingMode="Display" WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False">
+
+    <Window.Resources>
+        <Style x:Key="Section" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="20" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Margin" Value="0,24,0,8" />
+            <Setter Property="AutomationProperties.HeadingLevel" Value="Level2" />
+        </Style>
+        <Style x:Key="Card" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource CardBackgroundFillColorDefaultBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource CardStrokeColorDefaultBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding" Value="16,12" />
+            <Setter Property="Margin" Value="0,0,0,4" />
+        </Style>
+        <Style x:Key="Hint" TargetType="TextBlock">
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Margin" Value="28,2,0,6" />
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+        </Style>
+        <Style TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}">
+            <Setter Property="Margin" Value="0,4,0,0" />
+        </Style>
+        <Style x:Key="Label" TargetType="TextBlock">
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+    </Window.Resources>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False">
+        <StackPanel Margin="28,4,28,28" MaxWidth="900">
+
+            <!-- ===== General ===== -->
+            <TextBlock Text="General" Style="{StaticResource Section}" />
+            <Border Style="{StaticResource Card}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="220" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="ThemeLabel" Text="App theme" Style="{StaticResource Label}" />
+                    <ComboBox Grid.Column="1" ItemsSource="{Binding Themes}" SelectedItem="{Binding Theme}"
+                              AutomationProperties.LabeledBy="{Binding ElementName=ThemeLabel}" />
+                </Grid>
+            </Border>
+            <Border Style="{StaticResource Card}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="220" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock x:Name="StartLabel" Text="New windows and tabs open" Style="{StaticResource Label}" />
+                        <TextBlock Text="Also where Win+E goes when Explorer+ is the default." Style="{StaticResource Hint}" Margin="0,2,0,0" />
+                    </StackPanel>
+                    <ComboBox Grid.Column="1" VerticalAlignment="Center" ItemsSource="{Binding StartLocations}" SelectedItem="{Binding StartLocation}"
+                              AutomationProperties.LabeledBy="{Binding ElementName=StartLabel}" />
+                </Grid>
+            </Border>
+            <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <CheckBox Content="Open folders from other apps in a new tab" IsChecked="{Binding OpenFoldersInNewTab}" Margin="0" />
+                    <TextBlock Text="Off: each folder opened from another app gets its own window, as in File Explorer." Style="{StaticResource Hint}" />
+                    <CheckBox Content="Reopen the tabs from last time" IsChecked="{Binding RestoreSession}" />
+                </StackPanel>
+            </Border>
+
+            <!-- ===== Files and folders ===== -->
+            <TextBlock Text="Files and folders" Style="{StaticResource Section}" />
+            <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <CheckBox Content="Show hidden files and folders" IsChecked="{Binding ShowHiddenFiles}" Margin="0" />
+                    <CheckBox Content="Show file name extensions" IsChecked="{Binding ShowFileExtensions}" />
+                    <CheckBox Content="Show protected operating system files" IsChecked="{Binding ShowProtectedOsFiles}" />
+                    <CheckBox Content="Show folder sizes" IsChecked="{Binding ShowFolderSizes}" />
+                    <TextBlock Text="Worked out in the background at low priority, for the folders on screen." Style="{StaticResource Hint}" />
+                    <CheckBox Content="Show item check boxes" IsChecked="{Binding ShowCheckboxes}" />
+                </StackPanel>
+            </Border>
+            <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <CheckBox Content="Pick a view from what a folder holds" IsChecked="{Binding ContentAwareViews}" Margin="0" />
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="Folders of pictures and videos open as large icons, music with album and artist, the rest as details. A view you set by hand always wins." />
+                    <DockPanel Margin="28,6,0,0">
+                        <Button DockPanel.Dock="Right" Content="Forget them" Click="OnForgetViewsClick" />
+                        <TextBlock Text="{Binding FolderViewsText}" Style="{StaticResource Label}" Margin="0,0,12,0" />
+                    </DockPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- ===== Navigation pane and Home ===== -->
+            <TextBlock Text="Navigation pane and Home" Style="{StaticResource Section}" />
+            <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <CheckBox Content="Network" IsChecked="{Binding ShowNetwork}" Margin="0" />
+                    <CheckBox Content="Linux (shown only when WSL is installed)" IsChecked="{Binding ShowLinux}" />
+                    <CheckBox Content="Gallery" IsChecked="{Binding ShowGallery}" />
+                    <CheckBox Content="Libraries" IsChecked="{Binding ShowLibraries}" />
+                    <CheckBox Content="Recent files on Home" IsChecked="{Binding ShowRecentFiles}" />
+                </StackPanel>
+            </Border>
+
+            <!-- ===== Context menu ===== -->
+            <TextBlock Text="Context menu" Style="{StaticResource Section}" />
+            <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <TextBlock x:Name="MenuLabel" TextWrapping="Wrap"
+                               Text="Hide menu entries whose text contains any of these lines. Shift+right-click always shows the full menu." />
+                    <TextBox Text="{Binding HiddenMenuText, UpdateSourceTrigger=PropertyChanged, Delay=400}" AcceptsReturn="True"
+                             TextWrapping="NoWrap" VerticalScrollBarVisibility="Auto" Height="180" Margin="0,10,0,0"
+                             FontFamily="Cascadia Mono, Consolas" AutomationProperties.LabeledBy="{Binding ElementName=MenuLabel}" />
+                    <Button Content="Restore defaults" HorizontalAlignment="Left" Margin="0,10,0,0" Click="OnRestoreMenuDefaultsClick" />
+                </StackPanel>
+            </Border>
+
+            <!-- ===== Windows integration ===== -->
+            <TextBlock Text="Windows integration" Style="{StaticResource Section}" />
+            <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <TextBlock Text="Default file manager" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding DefaultStatusText}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                    <TextBlock Style="{StaticResource Hint}" Margin="0,4,0,0"
+                               Text="For your user account only, no admin rights needed. The Open and Save dialogs of other apps, the desktop and the taskbar stay File Explorer's." />
+                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                        <Button Content="{Binding MakeDefaultLabel}" Click="OnMakeDefaultClick" IsEnabled="{Binding CanMakeDefault}"
+                                Style="{DynamicResource AccentButtonStyle}" />
+                        <Button Content="Give folders back to File Explorer" Margin="8,0,0,0" Click="OnRestoreExplorerClick"
+                                IsEnabled="{Binding CanRestoreExplorer}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+            <Border Style="{StaticResource Card}">
+                <DockPanel>
+                    <Button DockPanel.Dock="Right" Content="Clear" Click="OnClearRecentClick" VerticalAlignment="Center"
+                            AutomationProperties.Name="Clear recent folders" />
+                    <StackPanel>
+                        <TextBlock Text="Jump list" FontWeight="SemiBold" />
+                        <TextBlock Text="Right-click Explorer+ on the taskbar for a new window, your pinned folders and recent folders."
+                                   TextWrapping="Wrap" Margin="0,4,12,0" Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
+                </DockPanel>
+            </Border>
+            <TextBlock Text="{Binding IntegrationMessage}" TextWrapping="Wrap" Margin="2,6,0,0" AutomationProperties.LiveSetting="Polite"
+                       Visibility="{Binding IntegrationMessage, Converter={StaticResource NullToVis}}" />
+
+            <!-- ===== About ===== -->
+            <TextBlock Text="About" Style="{StaticResource Section}" />
+            <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <TextBlock Text="{Binding VersionText}" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding ExePath}" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                    <TextBlock TextWrapping="Wrap" Margin="0,2,0,0" Foreground="{DynamicResource TextFillColorSecondaryBrush}">
+                        <Run Text="Settings are kept in " /><Run Text="{Binding DataFolder, Mode=OneWay}" />
+                    </TextBlock>
+                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                        <Button Content="Open settings folder" Click="OnOpenDataFolderClick" />
+                        <Button Content="Open error log" Margin="8,0,0,0" Click="OnOpenErrorLogClick" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</Window>
