@@ -164,8 +164,23 @@ public static partial class IndexSearch
     {
         if (paths.Count == 0 || paths.Count > IndexProtocol.MaxFolderSizes) return null;
         var status = await GetStatusAsync(ct: ct).ConfigureAwait(false);
-        var roots = status?.Volumes.Where(v => v.HasSizes).Select(v => v.Root).ToList();
-        if (roots is not { Count: > 0 } || !paths.Any(p => roots.Any(r => p.StartsWith(r, StringComparison.OrdinalIgnoreCase)))) return null;
+        // a cached status from while the service was still reading sizes would send every folder to the slow walk
+        if (status is not null && !HasSizesFor(status, paths) && paths.Any(p => SizesComing(status, p)))
+            status = await GetStatusAsync(fresh: true, ct: ct).ConfigureAwait(false);
+        if (status is null || !HasSizesFor(status, paths)) return null;
         return await IndexClient.GetFolderSizesAsync(paths, ct).ConfigureAwait(false);
     }
+
+    /// <summary>The service is running and still reading the sizes of the drive that holds <paramref name="path"/>.</summary>
+    public static async Task<bool> FolderSizesComingAsync(string path, CancellationToken ct = default)
+    {
+        var status = await GetStatusAsync(fresh: true, ct: ct).ConfigureAwait(false);
+        return status is not null && SizesComing(status, path);
+    }
+
+    private static bool HasSizesFor(StatusResponse status, IReadOnlyList<string> paths) =>
+        paths.Any(p => status.Volumes.Any(v => v.HasSizes && p.StartsWith(v.Root, StringComparison.OrdinalIgnoreCase)));
+
+    private static bool SizesComing(StatusResponse status, string path) =>
+        status.Volumes.Any(v => !v.HasSizes && v.State != VolumeState.Failed && path.StartsWith(v.Root, StringComparison.OrdinalIgnoreCase));
 }

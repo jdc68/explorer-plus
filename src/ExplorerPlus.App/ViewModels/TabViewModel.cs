@@ -39,7 +39,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
     private DateTime _renameNextCreatedUntil;
     private CancellationTokenSource? _refreshDebounce;
     private CancellationTokenSource? _sizesCts;
-    private int _pendingSizes;
+    private readonly HashSet<ItemViewModel> _sizesPending = [];
     private ViewMode _viewMode = ViewMode.Details;
     private bool _viewIsRemembered;
     private bool _modeIsRemembered;
@@ -415,7 +415,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
     {
         var location = _location!;
         _loadCts?.Cancel();
-        if (clearFirst) _sizesCts?.Cancel();
+        if (clearFirst) { _sizesCts?.Cancel(); _sizesPending.Clear(); }
         var cts = _loadCts = new CancellationTokenSource();
         var keep = keepSelection ? _selectedItems.Select(i => i.Name).ToHashSet(StringComparer.OrdinalIgnoreCase) : null;
 
@@ -753,6 +753,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         else
         {
             _sizesCts?.Cancel();
+            _sizesPending.Clear();
             foreach (var i in _all) i.SetFolderSize(null, false);
         }
         ChooseViewFromContent(); // the view rules may have changed
@@ -961,9 +962,11 @@ public sealed class TabViewModel : ObservableObject, IDisposable
     /// </summary>
     private void RequestFolderSizes(IReadOnlyCollection<ItemViewModel> candidates, bool restart = true)
     {
-        if (restart) { _sizesCts?.Cancel(); _pendingSizes = 0; }
+        if (restart) { _sizesCts?.Cancel(); _sizesPending.Clear(); }
         if (!AppSettings.Current.ShowFolderSizes || !FolderSizeService.IsMeasurable(_location?.FileSystemPath)) return;
-        var cts = restart || _sizesCts is null ? _sizesCts = new CancellationTokenSource() : _sizesCts;
+        // a cancelled source left by a load that never finished would leave these on "…" for good
+        if (restart || _sizesCts is null || _sizesCts.IsCancellationRequested) _sizesCts = new CancellationTokenSource();
+        var cts = _sizesCts;
         var service = FolderSizeService.Instance;
         var wanted = candidates.Where(i => i.IsFolder && i.Entry.Path is not null).ToHashSet();
         var visible = Items.ToHashSet();
@@ -971,11 +974,11 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         var measure = new List<ItemViewModel>();
         foreach (var item in ordered)
         {
-            if (service.TryGetCached(item.Entry.Path!, out var size)) item.SetFolderSize(size, false);
+            if (service.TryGetCached(item.Entry.Path!, out var size)) SetSize(item, size);
             else
             {
                 item.SetFolderSize(item.FolderSize, true);
-                _pendingSizes++;
+                _sizesPending.Add(item);
                 measure.Add(item);
             }
         }
@@ -985,36 +988,71 @@ public sealed class TabViewModel : ObservableObject, IDisposable
     // the index service knows every folder's total at once; measure only what it can't answer
     private async Task SizeFromIndexAsync(List<ItemViewModel> items, List<ItemViewModel> measure, CancellationToken ct)
     {
-        long[]? sizes = null;
-        try { sizes = await IndexSearch.GetFolderSizesAsync(items.Select(i => i.Entry.Path!).ToList(), ct); }
-        catch (OperationCanceledException) { return; }
-        catch (Exception) { }
+        var sizes = await AskIndexAsync(items, ct);
         if (ct.IsCancellationRequested) return;
-        var pending = measure.ToHashSet();
-        var answered = false;
         for (var i = 0; i < items.Count; i++)
+            if (sizes?[i] >= 0) SetSize(items[i], sizes[i]);
+        UpdateStatus();
+
+        var walks = measure.Where(_sizesPending.Contains)
+            .Select(item => (Item: item, Cts: CancellationTokenSource.CreateLinkedTokenSource(ct))).ToList();
+        foreach (var (item, cts) in walks) _ = MeasureAsync(item, cts.Token);
+        if (walks.Count > 0) await AskIndexAgainAsync(walks, ct);
+    }
+
+    // Right after the service starts it lists names first and reads sizes later (up to a minute per drive), so the
+    // walks started meanwhile give way to its answers once it has them
+    private async Task AskIndexAgainAsync(List<(ItemViewModel Item, CancellationTokenSource Cts)> walks, CancellationToken ct)
+    {
+        var folder = _location?.FileSystemPath;
+        for (var attempt = 0; attempt < 60 && folder is not null; attempt++)
         {
-            var item = items[i];
-            if (sizes is not null && sizes[i] >= 0)
+            bool coming;
+            try
             {
-                item.SetFolderSize(sizes[i], false);
-                if (pending.Remove(item)) { _pendingSizes--; answered = true; }
+                coming = await IndexSearch.FolderSizesComingAsync(folder, ct);
+                if (coming) await Task.Delay(TimeSpan.FromSeconds(3), ct);
             }
+            catch (OperationCanceledException) { return; }
+            walks.RemoveAll(w => !_sizesPending.Contains(w.Item));
+            if (walks.Count == 0) return;
+            var items = walks.Select(w => w.Item).ToList();
+            var sizes = await AskIndexAsync(items, ct);
+            if (ct.IsCancellationRequested) return;
+            if (sizes is not null)
+            {
+                for (var i = 0; i < items.Count; i++)
+                {
+                    if (sizes[i] < 0) continue;
+                    walks[i].Cts.Cancel();
+                    SetSize(items[i], sizes[i]);
+                }
+                UpdateStatus();
+            }
+            if (!coming) return; // it may have finished just before the check
         }
-        if (answered && pending.Count == 0 && _pendingSizes == 0 && (_sortColumn == SortColumn.Size || _groupBy == ColumnCatalog.Size))
-            _ = ApplyViewAsync(keepSelection: true);
-        if (answered) UpdateStatus();
-        foreach (var item in measure)
-            if (pending.Contains(item)) _ = MeasureAsync(item, ct);
+    }
+
+    private static async Task<long[]?> AskIndexAsync(List<ItemViewModel> items, CancellationToken ct)
+    {
+        try { return await IndexSearch.GetFolderSizesAsync(items.Select(i => i.Entry.Path!).ToList(), ct); }
+        catch (Exception) { return null; }
     }
 
     private async Task MeasureAsync(ItemViewModel item, CancellationToken ct)
     {
         var size = await FolderSizeService.Instance.GetAsync(item.Entry.Path!, ct);
-        if (ct.IsCancellationRequested) return;
-        item.SetFolderSize(size ?? item.FolderSize, false);
+        if (ct.IsCancellationRequested || !_sizesPending.Contains(item)) return;
+        SetSize(item, size ?? item.FolderSize);
         if (_selectedItems.Contains(item)) UpdateStatus();
-        if (--_pendingSizes == 0 && (_sortColumn == SortColumn.Size || _groupBy == ColumnCatalog.Size)) _ = ApplyViewAsync(keepSelection: true);
+    }
+
+    // null leaves the folder with no size (it can't be listed)
+    private void SetSize(ItemViewModel item, long? size)
+    {
+        item.SetFolderSize(size, false);
+        if (_sizesPending.Remove(item) && _sizesPending.Count == 0 && (_sortColumn == SortColumn.Size || _groupBy == ColumnCatalog.Size))
+            _ = ApplyViewAsync(keepSelection: true);
     }
 
     private void OnFolderSizesInvalidated(IReadOnlyCollection<string> paths)

@@ -16,6 +16,15 @@ public static class FolderSizeWatcher
     public static void Start()
     {
         FolderSizeService.Instance.Invalidated += path => { lock (Pending) Pending.Add(path); };
+        FolderSizeService.Instance.Log += line =>
+        {
+            try
+            {
+                Directory.CreateDirectory(AppPaths.DataFolder);
+                File.AppendAllText(Path.Combine(AppPaths.DataFolder, "folder-sizes.log"), $"{DateTime.Now:O} {line}{Environment.NewLine}");
+            }
+            catch (IOException) { }
+        };
         _timer = new DispatcherTimer(TimeSpan.FromMilliseconds(800), DispatcherPriority.Background, (_, _) => Flush(), Dispatcher.CurrentDispatcher);
         _timer.Start();
 
