@@ -20,6 +20,9 @@ public static class Grouping
             case ColumnCatalog.Created:
                 foreach (var i in items) (i.GroupKey, i.GroupRank) = DateGroup(i.Entry.Created, now);
                 break;
+            case ColumnCatalog.PictureDate:
+                foreach (var i in items) (i.GroupKey, i.GroupRank) = DateGroup(i.GetSortValue(groupBy) as DateTime?, now);
+                break;
             case ColumnCatalog.Size:
                 foreach (var i in items) (i.GroupKey, i.GroupRank) = SizeGroup(i.SortSize, i.IsFolder);
                 break;

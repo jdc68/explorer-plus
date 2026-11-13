@@ -149,6 +149,11 @@ public sealed class ItemViewModel : ObservableObject
                 var text = string.Join(", ", tags);
                 value = new PropertyValue(text, text);
             }
+            else if (k == ColumnCatalog.PictureDate)
+            {
+                var date = await DateTakenAsync() ?? _entry.Created;
+                if (date is { } d) value = new PropertyValue(d.ToString("g"), d);
+            }
             else if (k == ColumnCatalog.Git && _entry.Path is { } path)
             {
                 GitState? state = null;
@@ -161,6 +166,21 @@ public sealed class ItemViewModel : ObservableObject
             _pendingProps?.Remove(k);
         }
         OnPropertyChanged("Item[]");
+    }
+
+    private async Task<DateTime?> DateTakenAsync()
+    {
+        if (_entry.IsFolder) return null;
+        var path = _entry.Path;
+        var pidl = path is null || _entry.ShellAttributes != 0 ? _entry.Pidl : null;
+        try
+        {
+            var values = await StaWorkerPool.Properties.Run(() => PropertyReader.Read(path, pidl, [ColumnCatalog.DateTaken]));
+            if (values.GetValueOrDefault(ColumnCatalog.DateTaken).Sort is long fileTime && fileTime > 0)
+                return DateTime.FromFileTimeUtc(fileTime).ToLocalTime();
+        }
+        catch { }
+        return null;
     }
 
     // tags or the repository changed: read these columns again when they're shown

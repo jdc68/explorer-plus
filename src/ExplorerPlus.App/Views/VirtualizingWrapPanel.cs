@@ -3,7 +3,6 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
-using System.Windows.Threading;
 
 namespace ExplorerPlus.App.Views;
 
@@ -41,38 +40,7 @@ public sealed class VirtualizingWrapPanel : VirtualizingPanel, IScrollInfo
     private Size _extent;
     private Size _viewport;
     private Point _offset;
-    private int _measureRetries;
     private int _itemCount;
-
-    private INotifyCollectionChanged? _watchedItems;
-
-    public VirtualizingWrapPanel()
-    {
-        Loaded += (_, _) =>
-        {
-            WatchOwnerItems();
-            _measureRetries = 0;
-            InvalidateMeasure();
-        };
-        Unloaded += (_, _) => Watch(null);
-    }
-
-    // a window that opens straight into an icon view can get its items before the generator tells this panel,
-    // and then nothing measures it again
-    private void WatchOwnerItems() => Watch(IsItemsHost ? ItemsControl.GetItemsOwner(this)?.Items : null);
-
-    private void Watch(INotifyCollectionChanged? items)
-    {
-        if (ReferenceEquals(items, _watchedItems)) return;
-        if (_watchedItems is not null) _watchedItems.CollectionChanged -= OnOwnerItemsChanged;
-        _watchedItems = items;
-        if (items is not null) items.CollectionChanged += OnOwnerItemsChanged;
-    }
-
-    private void OnOwnerItemsChanged(object? sender, NotifyCollectionChangedEventArgs e)
-    {
-        if (InternalChildren.Count == 0) InvalidateMeasure();
-    }
 
     private bool Horizontal => Orientation == Orientation.Horizontal;
 
@@ -124,7 +92,6 @@ public sealed class VirtualizingWrapPanel : VirtualizingPanel, IScrollInfo
     protected override void OnIsItemsHostChanged(bool oldIsItemsHost, bool newIsItemsHost)
     {
         base.OnIsItemsHostChanged(oldIsItemsHost, newIsItemsHost);
-        if (IsLoaded) WatchOwnerItems();
         InvalidateMeasure();
     }
 
@@ -138,15 +105,9 @@ public sealed class VirtualizingWrapPanel : VirtualizingPanel, IScrollInfo
             double.IsInfinity(availableSize.Height) ? ItemHeight * 4 : availableSize.Height);
         UpdateScrollInfo(viewport);
 
-        // While the list swaps panels the new one can be measured before its generator is connected; nothing
-        // else re-measures it once it is, so try again after the current layout pass.
-        if (!IsItemsHost || ItemContainerGenerator is null)
-        {
-            if (_itemCount > 0 && _measureRetries++ < 20)
-                Dispatcher.BeginInvoke(DispatcherPriority.Loaded, InvalidateMeasure);
-            return viewport;
-        }
-        _measureRetries = 0;
+        if (!IsItemsHost) return viewport;
+        _ = InternalChildren; // connects the generator, or a panel made after its items arrived stays blank (#4)
+        if (ItemContainerGenerator is null) return viewport;
 
         var (first, last) = RealizedRange();
         var generator = ItemContainerGenerator;

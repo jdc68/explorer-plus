@@ -9,11 +9,17 @@ namespace ExplorerPlus.App.Services;
 public sealed class FolderViewState
 {
     public ViewMode Mode { get; set; } = ViewMode.Details;
+
+    // false: Mode was only saved along with a sort or column change, so the content rules still pick the view
+    public bool ModeSet { get; set; }
     public SortColumn Sort { get; set; } = SortColumn.Name;
     public string? SortProperty { get; set; }
     public bool Ascending { get; set; } = true;
     public string? GroupBy { get; set; }
     public List<string>? Columns { get; set; }
+
+    // kept apart from Columns, so resizing a column doesn't fix which columns the folder shows
+    public Dictionary<string, double>? Widths { get; set; }
     public DateTime Used { get; set; }
 }
 
@@ -41,8 +47,29 @@ public static class FolderViewStore
             }
             catch { _states = null; }
             _states = new Dictionary<string, FolderViewState>(_states ?? [], StringComparer.OrdinalIgnoreCase);
+            foreach (var state in _states.Values) ForgetOldDefaultColumns(state);
             return _states;
         }
+    }
+
+    // older versions saved the whole column list on a resize; a list equal to an old default came from that
+    private static readonly string[][] OldDefaults =
+    [
+        ["Name", "Modified", "Type", "Size"],
+        ["Name", "Modified", "Type", "Size", "System.Media.Duration"],
+        ["Name", "System.Music.TrackNumber", "System.Title", "System.Music.Artist", "System.Music.AlbumTitle", "System.Media.Duration", "Size"],
+        ["Name", "System.Photo.DateTaken", "System.Image.Dimensions", "Type", "Size"],
+    ];
+
+    public static void ForgetOldDefaultColumns(FolderViewState state)
+    {
+        if (state.Columns is not { Count: > 0 } columns) return;
+        var parts = columns.Select(c => c.Split('|')).ToList();
+        if (!OldDefaults.Any(d => d.SequenceEqual(parts.Select(p => p[0]), StringComparer.OrdinalIgnoreCase))) return;
+        foreach (var p in parts)
+            if (p.Length > 1 && double.TryParse(p[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var w))
+                (state.Widths ??= new(StringComparer.OrdinalIgnoreCase))[p[0]] = w;
+        state.Columns = null;
     }
 
     /// <summary>The view the user chose for this folder, or null if they never changed it.</summary>

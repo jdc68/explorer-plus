@@ -1,6 +1,8 @@
 using System.IO;
 using System.Text.Json;
 using ExplorerPlus.Core.Shell;
+using ContentViewRules = ExplorerPlus.App.ViewModels.ContentViewRules;
+using ViewRule = ExplorerPlus.App.ViewModels.ViewRule;
 
 namespace ExplorerPlus.App.Services;
 
@@ -69,6 +71,9 @@ public sealed class AppSettings
     /// <summary>Pick a view from what a folder holds (pictures as large icons…) unless one was set by hand.</summary>
     public bool ContentAwareViews { get; set; } = true;
 
+    // which view each kind of folder gets, and the extensions that make a folder that kind
+    public List<ViewRule> ViewRules { get; set; } = ContentViewRules.Defaults();
+
     /// <summary>Run copies and moves one after another (the transfer queue) instead of all at once.</summary>
     public bool QueueTransfers { get; set; } = true;
 
@@ -131,6 +136,7 @@ public sealed class AppSettings
         {
             Current = new AppSettings();
         }
+        Current.ViewRules = ContentViewRules.Complete(Current.ViewRules);
         Current.Upgrade();
         Current.ApplyToCore();
     }

@@ -20,6 +20,10 @@ public static class ColumnCatalog
     public const string Git = "ExplorerPlus.Git";
     public const string Tags = "ExplorerPlus.Tags";
 
+    // Date taken, or Date created when the picture has none
+    public const string PictureDate = "ExplorerPlus.PictureDate";
+    public const string DateTaken = "System.Photo.DateTaken";
+
     // answered by Explorer+ itself rather than by the shell
     public static bool IsCustom(string id) => id.StartsWith("ExplorerPlus.", StringComparison.Ordinal);
 
@@ -59,7 +63,8 @@ public static class ColumnCatalog
         new("System.Video.FrameWidth", "Frame width", 90, RightAlign: true, Category: "Media"),
         new("System.Video.FrameHeight", "Frame height", 90, RightAlign: true, Category: "Media"),
         new("System.Image.Dimensions", "Dimensions", 110, Category: "Pictures"),
-        new("System.Photo.DateTaken", "Date taken", 160, Category: "Pictures"),
+        new(PictureDate, "Date", 160, Category: "Pictures"),
+        new(DateTaken, "Date taken", 160, Category: "Pictures"),
         new("System.Photo.CameraModel", "Camera model", 150, Category: "Pictures"),
         new("System.FileVersion", "File version", 120, Category: "Programs"),
         new("System.Software.ProductName", "Product name", 160, Category: "Programs"),
@@ -81,8 +86,8 @@ public static class ColumnCatalog
         LocationKind.RecycleBin => [Name, "System.Recycle.DeletedFrom", "System.Recycle.DateDeleted", Size, Type],
         _ => content switch
         {
-            FolderContent.Music => [Name, "System.Music.TrackNumber", "System.Title", "System.Music.Artist", "System.Music.AlbumTitle", "System.Media.Duration", Size],
-            FolderContent.Pictures => [Name, "System.Photo.DateTaken", "System.Image.Dimensions", Type, Size],
+            FolderContent.Music => [Name, "System.Media.Duration", Modified, Type, Size],
+            FolderContent.Pictures => [Name, PictureDate, "System.Image.Dimensions", Type, Size],
             FolderContent.Videos => [Name, Modified, Type, Size, "System.Media.Duration"],
             _ => [Name, Modified, Type, Size],
         },

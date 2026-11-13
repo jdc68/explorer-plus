@@ -42,6 +42,7 @@ public partial class SettingsWindow : Window
     }
 
     private void OnForgetViewsClick(object sender, RoutedEventArgs e) => Vm.ForgetFolderViews();
+    private void OnRestoreViewRulesClick(object sender, RoutedEventArgs e) => Vm.RestoreDefaultViewRules();
     private void OnRestoreMenuDefaultsClick(object sender, RoutedEventArgs e) => Vm.RestoreDefaultMenuFilter();
     private void OnMakeDefaultClick(object sender, RoutedEventArgs e) => Vm.MakeDefault();
     private async void OnInstallIndexClick(object sender, RoutedEventArgs e) => await Vm.InstallIndexAsync();

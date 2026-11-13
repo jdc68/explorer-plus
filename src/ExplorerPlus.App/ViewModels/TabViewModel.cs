@@ -42,6 +42,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
     private int _pendingSizes;
     private ViewMode _viewMode = ViewMode.Details;
     private bool _viewIsRemembered;
+    private bool _modeIsRemembered;
     private FolderContent _content;
     private List<string> _columns = [ColumnCatalog.Name, ColumnCatalog.Modified, ColumnCatalog.Type, ColumnCatalog.Size];
     private readonly Dictionary<string, double> _columnWidths = new(StringComparer.OrdinalIgnoreCase);
@@ -586,7 +587,6 @@ public sealed class TabViewModel : ObservableObject, IDisposable
     {
         if (_columnWidths.TryGetValue(id, out var old) && Math.Abs(old - width) < 1) return;
         _columnWidths[id] = width;
-        _columnsRemembered = true;
         RememberView();
     }
 
@@ -637,6 +637,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
     public void SetViewMode(ViewMode mode)
     {
         ApplyViewMode(mode);
+        _modeIsRemembered = true;
         RememberView();
     }
 
@@ -645,6 +646,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
     {
         if (FolderKey is { } key) FolderViewStore.Remove(key);
         _viewIsRemembered = false;
+        _modeIsRemembered = false;
         _columnsRemembered = false;
         _columnWidths.Clear();
         OnPropertyChanged(nameof(ViewIsRemembered));
@@ -673,6 +675,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
     {
         var saved = FolderKey is { } key ? FolderViewStore.Get(key) : null;
         _viewIsRemembered = saved is not null;
+        _modeIsRemembered = saved?.ModeSet == true;
         OnPropertyChanged(nameof(ViewIsRemembered));
         _content = FolderContent.General;
         _sortColumn = saved?.Sort ?? DefaultSort;
@@ -696,13 +699,15 @@ public sealed class TabViewModel : ObservableObject, IDisposable
                     _columnWidths[parts[0]] = w;
             }
         }
+        if (saved?.Widths is { } widths)
+            foreach (var (id, w) in widths) _columnWidths[id] = w;
         _columnsRemembered = columns is not null;
         SetColumnsQuietly(columns ?? ColumnCatalog.DefaultFor(FolderContent.General, Kind));
         OnPropertyChanged(nameof(SortColumn));
         OnPropertyChanged(nameof(SortAscending));
         OnPropertyChanged(nameof(SortKey));
         OnPropertyChanged(nameof(GroupBy));
-        ApplyViewMode(saved?.Mode ?? ViewMode.Details);
+        ApplyViewMode(_modeIsRemembered ? saved!.Mode : ViewMode.Details);
     }
 
     private void SetColumnsQuietly(List<string> columns)
@@ -714,10 +719,12 @@ public sealed class TabViewModel : ObservableObject, IDisposable
 
     private void ChooseViewFromContent()
     {
-        _content = IsCollection || !AppSettings.Current.ContentAwareViews ? FolderContent.General : ContentViewRules.Classify(_all);
+        var settings = AppSettings.Current;
+        var auto = Kind == LocationKind.Folder && settings.ContentAwareViews;
+        _content = auto ? ContentViewRules.Classify(_all.Select(i => i.Entry), settings.ViewRules) : FolderContent.General;
         OnPropertyChanged(nameof(Content));
         if (!_columnsRemembered) SetColumnsQuietly(ColumnCatalog.DefaultFor(_content, Kind));
-        if (!_viewIsRemembered) ApplyViewMode(ContentViewRules.ModeFor(_content));
+        if (!_modeIsRemembered) ApplyViewMode(auto ? ContentViewRules.ModeFor(_content, settings.ViewRules) : ViewMode.Details);
     }
 
     private void RememberView()
@@ -726,13 +733,13 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         FolderViewStore.Set(key, new FolderViewState
         {
             Mode = _viewMode,
+            ModeSet = _modeIsRemembered,
             Sort = _sortColumn,
             SortProperty = _sortProperty,
             Ascending = _sortAscending,
             GroupBy = _groupBy,
-            Columns = _columnsRemembered
-                ? _columns.Select(id => _columnWidths.TryGetValue(id, out var w) ? $"{id}|{w.ToString(System.Globalization.CultureInfo.InvariantCulture)}" : id).ToList()
-                : null,
+            Columns = _columnsRemembered ? _columns.ToList() : null,
+            Widths = _columnWidths.Count > 0 ? new Dictionary<string, double>(_columnWidths, StringComparer.OrdinalIgnoreCase) : null,
         });
         if (_viewIsRemembered) return;
         _viewIsRemembered = true;
@@ -748,6 +755,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
             _sizesCts?.Cancel();
             foreach (var i in _all) i.SetFolderSize(null, false);
         }
+        ChooseViewFromContent(); // the view rules may have changed
         _ = ApplyViewAsync(keepSelection: true);
     }
 

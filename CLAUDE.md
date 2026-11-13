@@ -36,6 +36,7 @@ powershell -File installer/build.ps1
 - **After every change to the app, finish with `powershell -File installer/build.ps1 -Install -NoStart`** so the installed copy is the latest build. It quits the running Explorer+ to replace its files. `-NoStart` keeps the MSI from starting Explorer+ again from inside the Claude app's sandbox (see the MSIX note below); tell the user it starts again from the Start menu or at the next sign-in.
 
 - The tests use the real shell (`IFileOperation`, PIDLs, STA threads) on real temp folders, so they need an interactive Windows session.
+- The test project references the App (`UseWPF`), so WPF pieces such as `VirtualizingWrapPanel` are tested in an off-screen window on an STA thread (`ViewTests`).
 - A running `ExplorerPlus.exe` locks the DLLs in `src/ExplorerPlus.App/bin`, and the build then fails with MSB3026 copy retries. Close the app first, or run a dev build from a copied folder (`artifacts/dev/` is used for that and is gitignored).
 - Never turn on the default file manager (Settings, `--register-default`) on the user's machine to test something without asking: it changes how Windows opens every folder. `DefaultFileManagerTests` use a scratch key under `HKCU\Software\ExplorerPlusTests`.
 - The Claude desktop app is an MSIX package: HKCU writes from the shells it starts, and from anything launched from them (including Explorer+), land in a per-package registry overlay that Explorer, Windows Installer and other apps never see. Shell-integration checks (default file manager, Win+E, "Show in folder") can't be done from here; the user has to run them from an Explorer+ started normally.
@@ -64,7 +65,7 @@ Locations are `ShellLocation` / `Pidl`, not plain paths, so virtual folders (Thi
 - Tag views (`explorerplus-tag:`, `TagView`) and duplicate results (`explorerplus-dupes:`, `DuplicateFinder`) are app-made locations too: their `Pidl` is This PC, `ParsingName` is the URL, and the tab treats them as searches (no folder watch; deletes anywhere remove their items).
 - All of them stream `FolderEntry` batches through a bounded channel. The first batch is small (300 items or 30 ms) so rows show at once; later batches are large.
 
-`TabViewModel.LoadAsync` consumes that stream and cancels the previous load through `_loadCts` on every navigation. After listing, `ContentViewRules` picks a view from extension stats unless `FolderViewStore` (`views.json`) holds a view the user set by hand for that folder, which always wins. Live updates come from `ShellChangeWatcher` (`SHChangeNotifyRegister`), debounced into a refresh.
+`TabViewModel.LoadAsync` consumes that stream and cancels the previous load through `_loadCts` on every navigation. After listing, `ContentViewRules` picks a view from extension stats and the rules in `AppSettings.ViewRules`, unless `FolderViewStore` (`views.json`) holds a view mode the user picked by hand for that folder (`ModeSet`), which always wins; a saved sort or column change alone doesn't fix the view. Live updates come from `ShellChangeWatcher` (`SHChangeNotifyRegister`), debounced into a refresh.
 
 ### Threading rules
 

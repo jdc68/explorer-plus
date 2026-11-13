@@ -26,6 +26,7 @@ public sealed class SettingsViewModel : ObservableObject
     public SettingsViewModel()
     {
         _hiddenMenuText = string.Join(Environment.NewLine, S.HiddenMenuItems);
+        ViewRules = ContentViewRules.Kinds.Select(k => new ViewRuleRow(k)).ToList();
         RefreshDefaultStatus();
         _ = RefreshIndexStatusAsync();
     }
@@ -118,11 +119,20 @@ public sealed class SettingsViewModel : ObservableObject
         }
     }
 
+    public IReadOnlyList<ViewRuleRow> ViewRules { get; }
+
+    public void RestoreDefaultViewRules()
+    {
+        S.ViewRules = ContentViewRules.Defaults();
+        S.NotifyChanged();
+        foreach (var row in ViewRules) row.Reload();
+    }
+
     public string FolderViewsText => FolderViewStore.Count switch
     {
-        0 => "No folder has a view set by hand.",
-        1 => "1 folder has a view set by hand.",
-        var n => $"{n:N0} folders have a view set by hand.",
+        0 => "No folder has its own view, sort or columns.",
+        1 => "1 folder has its own view, sort or columns.",
+        var n => $"{n:N0} folders have their own view, sort or columns.",
     };
 
     public void ForgetFolderViews()
@@ -341,5 +351,51 @@ public sealed class SettingsViewModel : ObservableObject
         if (!File.Exists(log)) { MessageBox.Show("No errors have been logged.", "Explorer+"); return; }
         try { Process.Start(new ProcessStartInfo(log) { UseShellExecute = true }); }
         catch (Exception ex) { MessageBox.Show(ex.Message, "Explorer+"); }
+    }
+}
+
+public sealed class ViewRuleRow(FolderContent content) : ObservableObject
+{
+    private static AppSettings S => AppSettings.Current;
+
+    private static readonly IReadOnlyList<Choice> AllViews = ViewModes.All.Select(m => new Choice(ViewModes.Label(m), m.ToString())).ToList();
+
+    public IReadOnlyList<Choice> Views => AllViews;
+
+    private ViewRule Rule => S.ViewRules.First(r => r.Content == content);
+
+    public string Label => ContentViewRules.Label(content);
+
+    public bool HasExtensions => content != FolderContent.General;
+
+    public Choice View
+    {
+        get => AllViews.First(v => v.Value == Rule.View.ToString());
+        set
+        {
+            if (value is null || !Enum.TryParse<ViewMode>(value.Value, out var mode) || mode == Rule.View) return;
+            Rule.View = mode;
+            S.NotifyChanged();
+            OnPropertyChanged();
+        }
+    }
+
+    public string ExtensionsText
+    {
+        get => string.Join(" ", Rule.Extensions);
+        set
+        {
+            var list = value.Split([' ', ',', ';', '\n', '\r', '\t'], StringSplitOptions.RemoveEmptyEntries)
+                .Select(ContentViewRules.NormalizeExtension).Where(e => e.Length > 0).Distinct().ToList();
+            if (list.SequenceEqual(Rule.Extensions)) return;
+            Rule.Extensions = list;
+            S.NotifyChanged();
+        }
+    }
+
+    public void Reload()
+    {
+        OnPropertyChanged(nameof(View));
+        OnPropertyChanged(nameof(ExtensionsText));
     }
 }

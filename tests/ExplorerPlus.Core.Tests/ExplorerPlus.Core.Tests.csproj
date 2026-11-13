@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <IsPackable>false</IsPackable>
+    <UseWPF>true</UseWPF>
   </PropertyGroup>
 
   <ItemGroup>
@@ -13,12 +14,14 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
+    <Using Include="System.IO" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\ExplorerPlus.Core\ExplorerPlus.Core.csproj" />
     <ProjectReference Include="..\..\src\ExplorerPlus.Interop\ExplorerPlus.Interop.csproj" />
     <ProjectReference Include="..\..\src\ExplorerPlus.Indexing\ExplorerPlus.Indexing.csproj" />
+    <ProjectReference Include="..\..\src\ExplorerPlus.App\ExplorerPlus.App.csproj" />
   </ItemGroup>
 
 </Project>
