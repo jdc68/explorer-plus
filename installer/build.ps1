@@ -5,6 +5,7 @@
 .DESCRIPTION
   0. Picks the version. Without -Version it takes one patch above both Directory.Build.props and the installed copy,
      and writes it back to Directory.Build.props, so every build is a new, higher version that upgrades the installed one.
+     With -Release, a version in Directory.Build.props that has no v<version> tag yet is released as it is.
   1. Publishes the app (framework-dependent, ReadyToRun) to artifacts\publish\<arch>, with the index service next to it.
   2. Builds installer\ExplorerPlus.Installer.wixproj into artifacts\installer\ExplorerPlus-<version>-<arch>.msi.
   3. Writes winget manifests to artifacts\winget\<version>\, with the MSI's SHA256 filled in. Pass -InstallerUrl with
@@ -17,11 +18,13 @@
      tree is clean and gh is signed in, shows the version and the notes, and asks (-Yes answers for you). After the
      build it commits the version bump, pushes the branch, tags the commit v<version>, pushes the tag and runs
      gh release create with the MSI attached. The winget manifests get the release asset's URL. Notes are the commit
-     subjects since the last v* tag, after -Notes if given.
+     subjects since the last v* tag, after -Notes if given. Every committed version gets a release: after committing
+     and pushing a change, run it with -Release -Yes.
 
 .EXAMPLE
   powershell -File installer\build.ps1
   powershell -File installer\build.ps1 -Install
+  powershell -File installer\build.ps1 -Release -Yes
   powershell -File installer\build.ps1 -Version 0.4.0 -InstallerUrl https://example.com/ExplorerPlus-0.4.0-x64.msi
 #>
 param(
@@ -70,10 +73,16 @@ if (-not $Version) {
     $propsText = [IO.File]::ReadAllText($propsPath)
     if ($propsText -notmatch '<Version>(\d+\.\d+\.\d+)</Version>') { throw "No <Version>1.2.3</Version> in Directory.Build.props" }
     $current = [version]$Matches[1]
-    $installed = Get-InstalledProducts | Sort-Object Version -Descending | Select-Object -First 1
-    if ($installed -and $installed.Version -gt $current) { $current = $installed.Version }
-    $Version = "{0}.{1}.{2}" -f $current.Major, $current.Minor, ($current.Build + 1)
-    $bumped = $true
+    if ($Release -and -not (Invoke-Git tag --list "v$current")) {
+        # committed with the change it was built for, not released yet
+        $Version = "$current"
+    }
+    else {
+        $installed = Get-InstalledProducts | Sort-Object Version -Descending | Select-Object -First 1
+        if ($installed -and $installed.Version -gt $current) { $current = $installed.Version }
+        $Version = "{0}.{1}.{2}" -f $current.Major, $current.Minor, ($current.Build + 1)
+        $bumped = $true
+    }
 }
 if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw "Version must look like 1.2.3 (MSI versions are numeric): $Version" }
 
