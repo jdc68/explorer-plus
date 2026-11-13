@@ -452,7 +452,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
 
             SetAll(fresh);
             if (clearFirst) ChooseViewFromContent();
-            var select = ResolveSelection(selectPath, keep);
+            var select = ResolveSelection(selectPath, keep) ?? TakeShellSelection();
             await ApplyViewAsync(keepSelection: false, select: select);
             if (clearFirst && select is not { Count: > 0 }) ScrollToTopRequested?.Invoke();
             RequestFolderSizes(_all);
@@ -763,6 +763,46 @@ public sealed class TabViewModel : ObservableObject, IDisposable
     // ---------- Live updates ----------
 
     private string? _selectWhenCreated;
+    private readonly List<(Pidl Pidl, string? Path)> _shellSelection = [];
+    private bool _shellRename;
+    private DateTime _shellSelectionUntil;
+
+    // "Show in folder" from another app; the file may not be listed yet
+    public void SelectFromShell(Pidl item, string? path, bool add, bool rename)
+    {
+        if (!add || DateTime.UtcNow > _shellSelectionUntil) _shellSelection.Clear();
+        _shellSelection.Add((item, path?.TrimEnd('\\')));
+        _shellRename = rename && _shellSelection.Count == 1;
+        _shellSelectionUntil = DateTime.UtcNow.AddSeconds(10);
+        if (IsLoading) return;
+        if (TakeShellSelection() is { } items) ShowShellSelection(items);
+    }
+
+    // the requested items listed so far; the request stays until all are, or it expires
+    private List<ItemViewModel>? TakeShellSelection()
+    {
+        if (_shellSelection.Count == 0) return null;
+        var found = _shellSelection.Select(FindListed).OfType<ItemViewModel>().ToList();
+        var expired = DateTime.UtcNow > _shellSelectionUntil;
+        if (found.Count < _shellSelection.Count && !expired) return found.Count > 0 ? found : null;
+        _shellSelection.Clear();
+        return found.Count > 0 ? found : null;
+    }
+
+    private ItemViewModel? FindListed((Pidl Pidl, string? Path) wanted) =>
+        _all.FirstOrDefault(i => wanted.Path is not null
+            ? i.Entry.Path is { } p && string.Equals(p.TrimEnd('\\'), wanted.Path, StringComparison.OrdinalIgnoreCase)
+            : i.Entry.Pidl is { } pidl && pidl.Equals(wanted.Pidl));
+
+    private void ShowShellSelection(List<ItemViewModel> items)
+    {
+        SelectionRequested?.Invoke(items);
+        if (_shellRename && items.Count == 1)
+        {
+            _shellRename = false;
+            RenameRequested?.Invoke(items[0]);
+        }
+    }
 
     /// <summary>The next item created with this name (by us) gets selected.</summary>
     public void SelectWhenCreated(string name) => _selectWhenCreated = name;
@@ -846,6 +886,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(ShowEmptyMessage));
         UpdateStatus();
 
+        if (_shellSelection.Count > 0 && TakeShellSelection() is { } requested && requested.Contains(vm)) ShowShellSelection(requested);
         if (_selectWhenCreated is not null && string.Equals(_selectWhenCreated, entry.Name, StringComparison.OrdinalIgnoreCase))
         {
             _selectWhenCreated = null;

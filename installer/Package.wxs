@@ -28,14 +28,6 @@
         <RemoveFolder Id="RemoveInstallFolder" Directory="INSTALLFOLDER" On="uninstall" />
         <RemoveFolder Id="RemoveProgramsFolder" Directory="ProgramsFolder" On="uninstall" />
         <RegistryValue Root="HKCU" Key="Software\ExplorerPlus\Install" Name="Path" Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
-        <!--
-          The "default file manager" keys, deleted by Windows Installer itself on uninstall, as a safety net in case the
-          custom action below fails. With these keys gone, a Directory\shell default left pointing at ExplorerPlus.open
-          names a verb that no longer exists, and Windows falls back to File Explorer (checked by hand).
-        -->
-        <RegistryKey Root="HKCU" Key="Software\Classes\Directory\shell\ExplorerPlus.open" ForceDeleteOnUninstall="yes" />
-        <RegistryKey Root="HKCU" Key="Software\Classes\Drive\shell\ExplorerPlus.open" ForceDeleteOnUninstall="yes" />
-        <RegistryKey Root="HKCU" Key="Software\Classes\CLSID\{52205fd8-5dfb-447d-801a-d0b52f2e83e1}\shell\opennewwindow\command" ForceDeleteOnUninstall="yes" />
       </Component>
     </ComponentGroup>
 
@@ -58,10 +50,14 @@
     <!--
       On uninstall (not on upgrade), undo the "default file manager" switch while the exe is still there, which also
       puts back what another file manager had set before, and remove the sign-in entry. Runs after
-      RemoveRegistryValues has deleted the keys above.
+      DeleteVerbKeys, so what it puts back stays.
     -->
     <CustomAction Id="UnregisterDefault" Directory="INSTALLFOLDER" ExeCommand="&quot;[INSTALLFOLDER]ExplorerPlus.exe&quot; --uninstall"
                   Execute="deferred" Impersonate="yes" Return="ignore" />
+    <!-- Safety net in case the exe fails. Not ForceDeleteOnUninstall keys: those also went when an upgrade removed
+         the old version, which turned the default file manager off on every update -->
+    <CustomAction Id="DeleteVerbKeys" Directory="INSTALLFOLDER" Execute="deferred" Impersonate="yes" Return="ignore"
+                  ExeCommand="&quot;[SystemFolder]cmd.exe&quot; /c reg.exe delete &quot;HKCU\Software\Classes\Directory\shell\ExplorerPlus.open&quot; /f /reg:64 &amp; reg.exe delete &quot;HKCU\Software\Classes\Drive\shell\ExplorerPlus.open&quot; /f /reg:64 &amp; reg.exe delete &quot;HKCU\Software\Classes\CLSID\[\{]52205fd8-5dfb-447d-801a-d0b52f2e83e1[\}]\shell\opennewwindow\command&quot; /f /reg:64" />
     <!-- After install or upgrade: start in the background so folders open instantly right away (exits at once when
          that is turned off in Settings). NOSTART=1 skips it (build.ps1 -NoStart, for installs run from a sandboxed shell). -->
     <CustomAction Id="StartInBackground" Directory="INSTALLFOLDER" ExeCommand="&quot;[INSTALLFOLDER]ExplorerPlus.exe&quot; --background"
@@ -69,6 +65,7 @@
     <InstallExecuteSequence>
       <Custom Action="StartInBackground" After="InstallFinalize" Condition="NOT REMOVE AND NOT NOSTART" />
       <Custom Action="QuitRunning" Before="UnregisterDefault" Condition="REMOVE~=&quot;ALL&quot;" />
+      <Custom Action="DeleteVerbKeys" Before="UnregisterDefault" Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
       <Custom Action="UnregisterDefault" Before="RemoveFiles" Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
     </InstallExecuteSequence>
 

@@ -27,6 +27,8 @@ public partial class MainWindow : Window
     private bool _syncingSelection;
     private WindowState _stateBeforeFullScreen;
     private bool _prewarm;
+    private ShellWindowRegistration? _shellWindow;
+    private static readonly uint TaskbarCreated = User32.RegisterWindowMessage("TaskbarCreated");
 
     public MainViewModel ViewModel { get; }
 
@@ -105,6 +107,48 @@ public partial class MainWindow : Window
     {
         _hwnd = new WindowInteropHelper(this).Handle;
         HwndSource.FromHwnd(_hwnd)?.AddHook(WndProc);
+
+        // so "Show in folder" in other apps finds this window
+        _shellWindow = new ShellWindowRegistration(_hwnd, OnShellSelect, OnShellBrowse, () => Dispatcher.InvokeAsync(Close));
+        _shellWindow.Navigated(Tab?.Location);
+        Activated += (_, _) => _shellWindow.Activated(true);
+        Deactivated += (_, _) => _shellWindow.Activated(false);
+        Closed += (_, _) => _shellWindow.Dispose();
+    }
+
+    // called on RPC threads
+    private void OnShellSelect(Pidl item, uint flags)
+    {
+        if ((flags & ShellWindowClass.SVSI_SELECT) == 0) return;
+        string? path;
+        using (var native = item.ToNative()) path = ShellNative.GetName(native.Ptr, SIGDN.FILESYSPATH);
+        Dispatcher.InvokeAsync(() =>
+        {
+            Tab?.SelectFromShell(item, path,
+                add: (flags & ShellWindowClass.SVSI_DESELECTOTHERS) == 0,
+                rename: (flags & ShellWindowClass.SVSI_EDIT) == ShellWindowClass.SVSI_EDIT);
+            BringToFront();
+        });
+    }
+
+    private void OnShellBrowse(Pidl? target, uint flags)
+    {
+        Dispatcher.InvokeAsync(async () =>
+        {
+            try
+            {
+                if (Tab is not { } tab) return;
+                if ((flags & ShellWindowClass.SBSP_NAVIGATEBACK) != 0) await tab.GoBackAsync();
+                else if ((flags & ShellWindowClass.SBSP_NAVIGATEFORWARD) != 0) await tab.GoForwardAsync();
+                else if ((flags & ShellWindowClass.SBSP_PARENT) != 0) await tab.GoUpAsync();
+                else if (target is not null)
+                {
+                    var location = await ShellLocation.FromPidlAsync(target);
+                    await ViewModel.NavigateAsync(location, (flags & ShellWindowClass.SBSP_NEWBROWSER) != 0 ? OpenTarget.NewTab : OpenTarget.Here);
+                }
+            }
+            catch { }
+        });
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -178,6 +222,7 @@ public partial class MainWindow : Window
 
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
+        if ((uint)msg == TaskbarCreated) _shellWindow?.Resync();
         // While a native context menu is open, its owner-drawn submenus ("Send to", "Open with", "New")
         // need these messages forwarded to the shell's IContextMenu2/3.
         if (ShellContextMenu.Current is { } menu && msg is WM.INITMENUPOPUP or WM.DRAWITEM or WM.MEASUREITEM or WM.MENUCHAR)
@@ -211,6 +256,9 @@ public partial class MainWindow : Window
                 break;
             case nameof(MainViewModel.IsRightActive):
                 UpdateActivePane();
+                break;
+            case nameof(MainViewModel.WindowTitle):
+                _shellWindow?.Navigated(Tab?.Location);
                 break;
             case nameof(MainViewModel.SelectedTab):
                 if (_quickLook is { } ql && ql.Tab != Tab) CloseQuickLook();

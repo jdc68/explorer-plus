@@ -64,6 +64,10 @@ public sealed class Pidl : IEquatable<Pidl>
         return hash.ToHashCode();
     }
 
+    public byte[] ToArray() => (byte[])_bytes.Clone();
+
+    public static Pidl FromArray(byte[] bytes) => new((byte[])bytes.Clone());
+
     public string ToBase64() => Convert.ToBase64String(_bytes);
 
     public static Pidl FromBase64(string s) => new(Convert.FromBase64String(s));

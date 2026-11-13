@@ -210,6 +210,7 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        ShellWindowRegistration.Flush(TimeSpan.FromSeconds(1));
         _instance?.Dispose();
         base.OnExit(e);
     }

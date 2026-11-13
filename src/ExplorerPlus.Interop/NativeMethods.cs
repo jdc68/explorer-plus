@@ -27,6 +27,9 @@ public static class Shell32
     [DllImport(Dll)]
     public static extern int SHBindToObject([MarshalAs(UnmanagedType.Interface)] IShellFolder? psf, IntPtr pidl, IntPtr pbc, ref Guid riid, [MarshalAs(UnmanagedType.Interface)] out IShellFolder ppv);
 
+    [DllImport(Dll, EntryPoint = "SHBindToObject")]
+    public static extern int SHBindToObjectPtr(IntPtr psf, IntPtr pidl, IntPtr pbc, ref Guid riid, out IntPtr ppv);
+
     [DllImport(Dll, CharSet = CharSet.Unicode)]
     public static extern IntPtr SHGetFileInfo(string pszPath, uint dwFileAttributes, ref SHFILEINFO psfi, uint cbFileInfo, SHGFI uFlags);
 
@@ -59,6 +62,9 @@ public static class Shell32
     [DllImport(Dll, CharSet = CharSet.Unicode, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool ShellExecuteEx(ref SHELLEXECUTEINFO lpExecInfo);
+
+    [DllImport(Dll, CharSet = CharSet.Unicode)]
+    public static extern IntPtr ILCreateFromPathW(string pszPath);
 
     [DllImport(Dll)]
     public static extern void ILFree(IntPtr pidl);
@@ -181,6 +187,13 @@ public static class User32
     public static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
 
     public const uint GA_ROOT = 2;
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern uint RegisterWindowMessage(string lpString);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
