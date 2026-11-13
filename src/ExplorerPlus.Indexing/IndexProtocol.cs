@@ -12,9 +12,16 @@ public enum SearchStatus : byte
     BadRequest = 2,
 }
 
-public sealed record SearchRequest(string Query, string? Scope, int Limit, bool IncludeHidden, bool IncludeProtected);
+public abstract record IndexRequest;
 
-public sealed record SearchHit(string Path, uint Attributes)
+public sealed record StatusRequest : IndexRequest;
+
+public sealed record SearchRequest(string Query, string? Scope, int Limit, bool IncludeHidden, bool IncludeProtected) : IndexRequest;
+
+public sealed record FolderSizesRequest(List<string> Paths) : IndexRequest;
+
+// Size -1 and Modified 0 mean unknown (sizes still being read)
+public sealed record SearchHit(string Path, uint Attributes, long Size = -1, long Modified = 0)
 {
     public bool IsFolder => (Attributes & VolumeIndex.DirectoryAttribute) != 0;
 }
@@ -23,7 +30,7 @@ public sealed record SearchHit(string Path, uint Attributes)
 /// <param name="Scanning">Some volume is still being read, so results may be missing.</param>
 public sealed record SearchResponse(SearchStatus Status, int Total, List<SearchHit> Hits, bool Scanning);
 
-public sealed record VolumeStatus(string Root, VolumeState State, int Count, string? Error);
+public sealed record VolumeStatus(string Root, VolumeState State, int Count, string? Error, bool HasSizes = false);
 
 public sealed record StatusResponse(string Version, List<VolumeStatus> Volumes);
 
@@ -34,13 +41,14 @@ public sealed record StatusResponse(string Version, List<VolumeStatus> Volumes);
 public static class IndexProtocol
 {
     public const string PipeName = "ExplorerPlus.Index";
-    public const int ProtocolVersion = 1;
+    public const int ProtocolVersion = 2;
+    public const int MaxFolderSizes = 10_000;
     public const int MaxMessage = 64 << 20;
     public const int MaxQueryLength = 2048;
 
     public static string Version => typeof(IndexProtocol).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
 
-    private const byte KindSearch = 1, KindStatus = 2;
+    private const byte KindSearch = 1, KindStatus = 2, KindFolderSizes = 3;
 
     public static byte[] EncodeSearch(SearchRequest request) => Encode(w =>
     {
@@ -59,13 +67,34 @@ public static class IndexProtocol
         w.Write(KindStatus);
     });
 
-    /// <summary>Server side: a search request, a status request (null), or an exception for anything malformed.</summary>
-    public static SearchRequest? DecodeRequest(byte[] message)
+    public static byte[] EncodeFolderSizes(IReadOnlyList<string> paths) => Encode(w =>
+    {
+        w.Write(ProtocolVersion);
+        w.Write(KindFolderSizes);
+        w.Write(paths.Count);
+        foreach (var path in paths) w.Write(path);
+    });
+
+    // throws for anything malformed
+    public static IndexRequest DecodeRequest(byte[] message)
     {
         using var r = Reader(message);
         if (r.ReadInt32() != ProtocolVersion) throw new InvalidDataException("Unsupported protocol version.");
         var kind = r.ReadByte();
-        if (kind == KindStatus) return null;
+        if (kind == KindStatus) return new StatusRequest();
+        if (kind == KindFolderSizes)
+        {
+            var count = r.ReadInt32();
+            if (count < 0 || count > MaxFolderSizes) throw new InvalidDataException("Too many folders.");
+            var paths = new List<string>(count);
+            for (var i = 0; i < count; i++)
+            {
+                var path = r.ReadString();
+                if (path.Length > 32767) throw new InvalidDataException("Path too long.");
+                paths.Add(path);
+            }
+            return new FolderSizesRequest(paths);
+        }
         if (kind != KindSearch) throw new InvalidDataException("Unknown request.");
         var query = r.ReadString();
         var scope = r.ReadString();
@@ -83,6 +112,8 @@ public static class IndexProtocol
         {
             w.Write(hit.Path);
             w.Write(hit.Attributes);
+            w.Write(hit.Size);
+            w.Write(hit.Modified);
         }
     });
 
@@ -94,7 +125,7 @@ public static class IndexProtocol
         var scanning = r.ReadBoolean();
         var count = r.ReadInt32();
         var hits = new List<SearchHit>(Math.Min(count, 100_000));
-        for (var i = 0; i < count; i++) hits.Add(new SearchHit(r.ReadString(), r.ReadUInt32()));
+        for (var i = 0; i < count; i++) hits.Add(new SearchHit(r.ReadString(), r.ReadUInt32(), r.ReadInt64(), r.ReadInt64()));
         return new SearchResponse(status, total, hits, scanning);
     }
 
@@ -108,8 +139,25 @@ public static class IndexProtocol
             w.Write((byte)v.State);
             w.Write(v.Count);
             w.Write(v.Error ?? "");
+            w.Write(v.HasSizes);
         }
     });
+
+    public static byte[] EncodeFolderSizesResponse(long[] sizes) => Encode(w =>
+    {
+        w.Write(sizes.Length);
+        foreach (var size in sizes) w.Write(size);
+    });
+
+    public static long[] DecodeFolderSizesResponse(byte[] message)
+    {
+        using var r = Reader(message);
+        var count = r.ReadInt32();
+        if (count < 0 || count > MaxFolderSizes) throw new InvalidDataException("Bad folder sizes.");
+        var sizes = new long[count];
+        for (var i = 0; i < count; i++) sizes[i] = r.ReadInt64();
+        return sizes;
+    }
 
     public static StatusResponse DecodeStatusResponse(byte[] message)
     {
@@ -123,7 +171,7 @@ public static class IndexProtocol
             var state = (VolumeState)r.ReadByte();
             var items = r.ReadInt32();
             var error = r.ReadString();
-            volumes.Add(new VolumeStatus(root, state, items, error.Length == 0 ? null : error));
+            volumes.Add(new VolumeStatus(root, state, items, error.Length == 0 ? null : error, r.ReadBoolean()));
         }
         return new StatusResponse(version, volumes);
     }

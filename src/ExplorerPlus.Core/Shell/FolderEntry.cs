@@ -27,6 +27,9 @@ public sealed class FolderEntry
     /// <summary>Size in bytes, -1 when not applicable or unknown.</summary>
     public long Size { get; init; } = -1;
 
+    // a folder's total when it came with the listing (instant search), so nothing needs measuring
+    public long? KnownFolderSize { get; init; }
+
     public DateTime? Modified { get; init; }
     public DateTime? Created { get; init; }
     public required string TypeName { get; init; }

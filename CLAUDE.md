@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Explorer+ is a Windows 11 File Explorer replacement (WPF on .NET 9, Windows only). [PLAN.md](PLAN.md) is the source of truth for goals, decisions agreed with the user, milestone status (M1 to M5 done, M6 in progress: dual pane, the transfer queue and instant search are done) and the performance budget. Read it before adding features. Its section 5 lists choices that must not be undone (no OneDrive integration, drives deduplicated by volume GUID, hidden context-menu entries, content-aware views).
+Explorer+ is a Windows 11 File Explorer replacement (WPF on .NET 9, Windows only). [PLAN.md](PLAN.md) is the source of truth for goals, decisions agreed with the user, milestone status (M1 to M6 done; M7, remote locations and plugins, is next) and the performance budget. Read it before adding features. Its section 5 lists choices that must not be undone (no OneDrive integration, drives deduplicated by volume GUID, hidden context-menu entries, content-aware views).
 
 ## Commands
 
@@ -60,6 +60,7 @@ Locations are `ShellLocation` / `Pidl`, not plain paths, so virtual folders (Thi
 - Virtual folders go through `ShellFolderEnumerator` (`IShellFolder::EnumObjects`) on an STA worker.
 - Home goes through `HomeFeed` (its options are injected by the app through `FolderLoader.HomeOptions`).
 - Instant-search results (`ShellLocation.IsIndexSearch`, `explorerplus-search:` URLs) go through `IndexSearch`, which asks the index service and stats the hits. Enter in the search box picks it over Windows Search (`SearchLocation`) when the service runs and covers the folder; on those tabs `FilterText` is the query and typing re-searches with `NavMode.Replace`.
+- Tag views (`explorerplus-tag:`, `TagView`) and duplicate results (`explorerplus-dupes:`, `DuplicateFinder`) are app-made locations too: their `Pidl` is This PC, `ParsingName` is the URL, and the tab treats them as searches (no folder watch; deletes anywhere remove their items).
 - All of them stream `FolderEntry` batches through a bounded channel. The first batch is small (300 items or 30 ms) so rows show at once; later batches are large.
 
 `TabViewModel.LoadAsync` consumes that stream and cancels the previous load through `_loadCts` on every navigation. After listing, `ContentViewRules` picks a view from extension stats unless `FolderViewStore` (`views.json`) holds a view the user set by hand for that folder, which always wins. Live updates come from `ShellChangeWatcher` (`SHChangeNotifyRegister`), debounced into a refresh.

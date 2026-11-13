@@ -110,8 +110,170 @@ public partial class MainWindow
         });
     }
 
+    private async Task SearchEverywhereAsync()
+    {
+        if (await ViewModel.OpenSearchEverywhereAsync() is null) return;
+        FilterBox.Focus();
+        FilterBox.SelectAll();
+    }
+
+    // ================= Workspaces =================
+
+    private MenuItem WorkspacesMenu()
+    {
+        var menu = new MenuItem { Header = "Workspaces", Icon = new TextBlock { Text = Glyphs.Workspace, FontFamily = (System.Windows.Media.FontFamily)Application.Current.Resources["IconFont"] } };
+        var all = Workspaces.All;
+        foreach (var w in all)
+        {
+            var item = MenuEntry(w.Name, null, () => App.OpenWorkspace(w), null);
+            item.ToolTip = Workspaces.Describe(w);
+            menu.Items.Add(item);
+        }
+        if (all.Count > 0) menu.Items.Add(new Separator());
+        menu.Items.Add(MenuEntry("Save these tabs as a workspace…", null, SaveWorkspace, null));
+        if (all.Count > 0)
+        {
+            var delete = new MenuItem { Header = "Delete" };
+            foreach (var w in all) delete.Items.Add(MenuEntry(w.Name, null, () => DeleteWorkspace(w), null));
+            menu.Items.Add(delete);
+        }
+        return menu;
+    }
+
+    private void SaveWorkspace()
+    {
+        var suggested = ViewModel.CurrentTab?.Location?.DisplayName ?? "Workspace";
+        var name = PromptWindow.Ask(this, "Save workspace",
+            "Saves the tabs in this window, with their right panes, under a name. Open it again from More ▸ Workspaces or the command palette (Ctrl+K).",
+            suggested, "Save");
+        if (name is null) return;
+        var workspace = ViewModel.CaptureWorkspace(name);
+        var tabs = workspace.Tabs.Count == 1 ? "1 tab" : $"{workspace.Tabs.Count} tabs";
+        ViewModel.ShowNotice(Workspaces.Save(workspace) ? $"Updated workspace \"{name}\" ({tabs})." : $"Saved workspace \"{name}\" ({tabs}).");
+    }
+
+    private void DeleteWorkspace(Workspace workspace)
+    {
+        if (MessageBox.Show(this, $"Delete the workspace \"{workspace.Name}\"? Its folders are not touched.", "Delete workspace - Explorer+",
+                MessageBoxButton.OKCancel, MessageBoxImage.None, MessageBoxResult.Cancel) != MessageBoxResult.OK) return;
+        Workspaces.Delete(workspace.Name);
+        ViewModel.ShowNotice($"Deleted workspace \"{workspace.Name}\".");
+    }
+
+    // ================= Tags =================
+
+    private static List<string> TaggablePaths(IReadOnlyList<ItemViewModel> items) =>
+        items.Select(i => i.Entry.Path).OfType<string>().Where(Path.IsPathFullyQualified).ToList();
+
+    private MenuItem TagsMenu(IReadOnlyList<ItemViewModel> items)
+    {
+        var menu = new MenuItem { Header = "Tags", Icon = new TextBlock { Text = Glyphs.Tag, FontFamily = (System.Windows.Media.FontFamily)Application.Current.Resources["IconFont"] } };
+        var paths = TaggablePaths(items);
+        var names = Tags.Names;
+        foreach (var tag in names)
+        {
+            var item = MenuCheck(tag, paths.Count > 0 && paths.All(p => Tags.Has(p, tag)), () => ToggleTag(paths, tag));
+            item.IsEnabled = paths.Count > 0;
+            menu.Items.Add(item);
+        }
+        if (names.Count > 0) menu.Items.Add(new Separator());
+        var add = MenuEntry("New tag…", null, () => NewTag(paths), null);
+        add.IsEnabled = paths.Count > 0;
+        menu.Items.Add(add);
+        if (names.Count > 0)
+        {
+            var show = new MenuItem { Header = "Show tagged items" };
+            foreach (var tag in names) show.Items.Add(MenuEntry(tag, null, () => ShowTag(tag, OpenTarget.Here), null));
+            menu.Items.Add(show);
+            var delete = new MenuItem { Header = "Delete tag" };
+            foreach (var tag in names) delete.Items.Add(MenuEntry(tag, null, () => DeleteTag(tag), null));
+            menu.Items.Add(delete);
+        }
+        return menu;
+    }
+
+    private void ShowSidebarTagMenu(SidebarFolder folder)
+    {
+        var tag = folder.Name;
+        var menu = new ContextMenu { Placement = PlacementMode.MousePoint };
+        menu.Items.Add(MenuEntry("Open", null, () => ShowTag(tag, OpenTarget.Here), null));
+        menu.Items.Add(MenuEntry("Open in new tab", null, () => ShowTag(tag, OpenTarget.NewTab), null));
+        menu.Items.Add(MenuEntry("Open in new window", null, () => App.OpenWindow(folder.Target), null));
+        menu.Items.Add(new Separator());
+        menu.Items.Add(MenuEntry("Delete tag", null, () => DeleteTag(tag), "\uE74D"));
+        menu.IsOpen = true;
+    }
+
+    private void ToggleTag(IReadOnlyList<string> paths, string tag)
+    {
+        if (paths.Count == 0) return;
+        var what = paths.Count == 1 ? Path.GetFileName(paths[0].TrimEnd('\\')) : $"{paths.Count} items";
+        ViewModel.ShowNotice(Tags.Toggle(paths, tag) ? $"Tagged {what} \"{tag}\"." : $"Removed the tag \"{tag}\" from {what}.");
+    }
+
+    private void NewTag(IReadOnlyList<string> paths)
+    {
+        if (paths.Count == 0) return;
+        var tag = PromptWindow.Ask(this, "Tag items",
+            "Tagged items show in the sidebar under Tags and in the Tags column. Use a name you already have to add that tag.",
+            "", "Tag");
+        if (tag is null) return;
+        Tags.Set(paths, tag, add: true);
+        var what = paths.Count == 1 ? Path.GetFileName(paths[0].TrimEnd('\\')) : $"{paths.Count} items";
+        ViewModel.ShowNotice($"Tagged {what} \"{tag}\".");
+    }
+
+    private async void ShowTag(string tag, OpenTarget target)
+    {
+        try { await ViewModel.NavigateAsync(TagView.Url(tag), target); }
+        catch (Exception ex) { ViewModel.ShowNotice(ex.Message); }
+    }
+
+    private void DeleteTag(string tag)
+    {
+        var count = Tags.PathsWith(tag).Count;
+        if (MessageBox.Show(this, $"Delete the tag \"{tag}\" from {count} item{(count == 1 ? "" : "s")}? The items themselves are not touched.",
+                "Delete tag - Explorer+", MessageBoxButton.OKCancel, MessageBoxImage.None, MessageBoxResult.Cancel) != MessageBoxResult.OK) return;
+        Tags.RemoveTag(tag);
+        ViewModel.ShowNotice($"Deleted the tag \"{tag}\".");
+    }
+
+    // ================= Duplicates and folder compare =================
+
+    // the selected folder, or the one on screen
+    private string? FolderForTools()
+    {
+        if (Selection is [{ IsFolder: true, Entry.Path: { } picked }] && Path.IsPathFullyQualified(picked)) return picked;
+        return Tab?.Location is { IsFileSystemFolder: true, FileSystemPath: { } here } ? here : null;
+    }
+
+    private async void FindDuplicates()
+    {
+        if (FolderForTools() is not { } folder)
+        {
+            ViewModel.ShowNotice("Open or select a folder to look for duplicate files in.");
+            return;
+        }
+        try { await ViewModel.NavigateAsync(DuplicateFinder.Url(folder), OpenTarget.NewTab); }
+        catch (Exception ex) { ViewModel.ShowNotice(ex.Message); }
+    }
+
+    private async void CompareFolders()
+    {
+        static string? FolderOf(TabViewModel? t) => t?.Location is { IsFileSystemFolder: true, FileSystemPath: { } p } ? p : null;
+        var left = FolderOf(ViewModel.CurrentTab);
+        var right = FolderOf(ViewModel.RightTab);
+        if (right is null && Selection is [{ IsFolder: true, Entry.Path: { } picked }] && Path.IsPathFullyQualified(picked)) right = picked;
+        if (CompareWindow.Ask(this, left, right) is not { } plan) return;
+        try { await ViewModel.SyncAsync(plan); }
+        catch (Exception ex) { ViewModel.ShowNotice(ex.Message); }
+    }
+
     private static class Glyphs
     {
+        public const string Tag = SidebarViewModel.TagGlyph;
+        public const string Duplicates = "\uE8C8";
+        public const string Compare = "\uE8AB";
         public const string Folder = "";
         public const string Tab = "";
         public const string Star = "";
@@ -119,6 +281,7 @@ public partial class MainWindow
         public const string Drive = "";
         public const string Location = "";
         public const string Dual = "";
+        public const string Workspace = "\uE8A9";
     }
 
     /// <summary>Every command, with its shortcut, plus the places you can jump to: tabs, the sidebar, recent folders.</summary>
@@ -164,6 +327,9 @@ public partial class MainWindow
         Add(selection.Count > 0 && selection.All(i => i.IsStarred) ? "Remove from Starred" : "Add to Starred", () => ViewModel.ToggleStar(selection), "Ctrl+D", Glyphs.Star);
         Add("Properties", ShowProperties, "Alt+Enter", "");
         var paths = selection.Select(i => i.Entry.Path).OfType<string>().ToList();
+        if (FolderForTools() is { } dupesIn)
+            list.Add(new PaletteEntry("Find duplicate files", FindDuplicates, null, dupesIn, Glyphs.Duplicates));
+        Add("Compare and sync folders…", CompareFolders, null, Glyphs.Compare);
         if (paths.Count == selection.Count && paths.Count > 0)
         {
             foreach (var format in new[] { ArchiveFormat.Zip, ArchiveFormat.SevenZip, ArchiveFormat.TarGz })
@@ -188,6 +354,7 @@ public partial class MainWindow
         }
         Add("Edit the address", () => Address.BeginEdit(), "Ctrl+L", "");
         Add("Filter or search this folder", () => { FilterBox.Focus(); FilterBox.SelectAll(); }, "Ctrl+E", "");
+        Add("Search all drives", () => Await(SearchEverywhereAsync), "Ctrl+Shift+F", "");
         Add("New tab", () => Await(() => ViewModel.OpenTabAsync(AppSettings.Current.StartLocation)), "Ctrl+T", Glyphs.Tab);
         if (ViewModel.CurrentTab is { } stripTab)
         {
@@ -247,6 +414,26 @@ public partial class MainWindow
         Add("Settings", ShowSettings, "Ctrl+,", "");
         Add("Exit Explorer+", App.ExitAll, null, "");
 
+        // Workspaces
+        list.Add(new PaletteEntry("Save these tabs as a workspace…", SaveWorkspace, null, null, Glyphs.Workspace));
+        foreach (var w in Workspaces.All)
+        {
+            list.Add(new PaletteEntry($"Open workspace: {w.Name}", () => App.OpenWorkspace(w), null, Workspaces.Describe(w), Glyphs.Workspace));
+            list.Add(new PaletteEntry($"Delete workspace: {w.Name}", () => DeleteWorkspace(w), null, null, Glyphs.Workspace));
+        }
+
+        // Tags
+        var taggable = TaggablePaths(selection);
+        var canTag = taggable.Count > 0 && taggable.Count == selection.Count;
+        if (canTag) list.Add(new PaletteEntry("Tag selected items…", () => NewTag(taggable), null, null, Glyphs.Tag));
+        foreach (var name in Tags.Names)
+        {
+            if (canTag)
+                list.Add(new PaletteEntry($"Tag selected items: {name}", () => ToggleTag(taggable, name), null,
+                    taggable.All(p => Tags.Has(p, name)) ? "Removes the tag" : null, Glyphs.Tag));
+            list.Add(new PaletteEntry($"Delete tag: {name}", () => DeleteTag(name), null, null, Glyphs.Tag));
+        }
+
         // Places: open tabs, then the sidebar's own entries, then recent folders.
         foreach (var t in ViewModel.Tabs.Where(t => t != tab && t.Location is not null))
             list.Add(new PaletteEntry($"Switch to tab: {t.Title}", () => ViewModel.SelectedTab = t, null, t.Location!.EditText, Glyphs.Tab));
@@ -255,7 +442,7 @@ public partial class MainWindow
             foreach (var place in header.Children.OfType<SidebarFolder>())
             {
                 if (!seen.Add(place.Target)) continue;
-                var glyph = place is SidebarDrive ? Glyphs.Drive : place.IsStarredEntry ? Glyphs.Star : place.FileSystemPath is null ? Glyphs.Location : Glyphs.Folder;
+                var glyph = place.Glyph ?? (place is SidebarDrive ? Glyphs.Drive : place.IsStarredEntry ? Glyphs.Star : place.FileSystemPath is null ? Glyphs.Location : Glyphs.Folder);
                 var target = place.Target;
                 list.Add(new PaletteEntry($"Go to {place.Name}", () => Await(() => ViewModel.NavigateAsync(target)), null,
                     place.FileSystemPath ?? header.Name, glyph));

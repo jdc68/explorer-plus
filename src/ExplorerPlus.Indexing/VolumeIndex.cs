@@ -2,7 +2,7 @@ using System.Buffers;
 
 namespace ExplorerPlus.Indexing;
 
-public readonly record struct IndexHit(string Path, uint Attributes, long Key)
+public readonly record struct IndexHit(string Path, uint Attributes, long Key, long Size = -1, long Modified = 0)
 {
     public bool IsFolder => (Attributes & VolumeIndex.DirectoryAttribute) != 0;
 }
@@ -32,6 +32,8 @@ public sealed class VolumeIndex
     private uint[] _attributes;
     private int[] _nameStart;
     private byte[] _nameLength;
+    private long[] _size; // a file's own size; a folder's total of everything below it
+    private long[] _modified;
     private char[] _names;
     private int _namesUsed;
     private int _namesWasted;
@@ -53,6 +55,8 @@ public sealed class VolumeIndex
         _attributes = new uint[capacity];
         _nameStart = new int[capacity];
         _nameLength = new byte[capacity];
+        _size = new long[capacity];
+        _modified = new long[capacity];
         _names = new char[Math.Max(1024, capacity * 12)];
         _parent[RootRecord] = Top;
         _sequence[RootRecord] = Sequence(rootReference);
@@ -60,6 +64,8 @@ public sealed class VolumeIndex
     }
 
     public string Root { get; }
+
+    public bool HasSizes { get; private set; }
     public uint SerialNumber { get; }
     public int RootRecord { get; }
 
@@ -67,7 +73,7 @@ public sealed class VolumeIndex
     public int Count => Volatile.Read(ref _count);
 
     /// <summary>Approximate memory the index holds, in bytes.</summary>
-    public long MemoryBytes => (long)_parent.Length * 15 + (long)_names.Length * 2;
+    public long MemoryBytes => (long)_parent.Length * 31 + (long)_names.Length * 2;
 
     public static int Record(ulong reference) => (int)Math.Min(reference & 0xFFFF_FFFF_FFFF, int.MaxValue);
     private static ushort Sequence(ulong reference) => (ushort)(reference >> 48);
@@ -88,6 +94,24 @@ public sealed class VolumeIndex
         var parent = Record(parentReference);
         if (r >= _parent.Length) Grow(r + 1);
         var present = _parent[r] != Absent;
+        if (present && _sequence[r] != Sequence(reference))
+        {
+            // The record now holds another file whose delete we never saw
+            if (HasSizes) AddToAncestors(_parent[r], -_size[r]);
+            _size[r] = 0;
+            _modified[r] = 0;
+        }
+        else if (present && _parent[r] != parent && HasSizes)
+        {
+            // moved: the whole total goes with it
+            AddToAncestors(_parent[r], -_size[r]);
+            AddToAncestors(parent, _size[r]);
+        }
+        if (!present)
+        {
+            _size[r] = 0;
+            _modified[r] = 0;
+        }
         if (present && name.SequenceEqual(NameOf(r)))
         {
             _parent[r] = parent;
@@ -109,6 +133,8 @@ public sealed class VolumeIndex
     {
         var r = Record(reference);
         if (r >= _parent.Length || r == RootRecord || _parent[r] == Absent || _sequence[r] != Sequence(reference)) return;
+        if (HasSizes) AddToAncestors(_parent[r], -_size[r]);
+        _size[r] = 0;
         _parent[r] = Absent;
         _namesWasted += _nameLength[r];
         _nameLength[r] = 0;
@@ -137,6 +163,58 @@ public sealed class VolumeIndex
         Array.Resize(ref _attributes, size);
         Array.Resize(ref _nameStart, size);
         Array.Resize(ref _nameLength, size);
+        Array.Resize(ref _size, size);
+        Array.Resize(ref _modified, size);
+    }
+
+    private void AddToAncestors(int folder, long delta)
+    {
+        if (delta == 0) return;
+        for (var (d, depth) = (folder, 0); d >= 0 && d < _parent.Length && _parent[d] != Absent && depth < MaxDepth; d = _parent[d], depth++)
+        {
+            _size[d] += delta;
+            if (d == RootRecord) break;
+        }
+    }
+
+    // call inside a write
+    public void ApplySizes(long[] sizes, long[] modified)
+    {
+        var n = Math.Min(_parent.Length, Math.Min(sizes.Length, modified.Length));
+        for (var r = 0; r < _parent.Length; r++)
+        {
+            if (_parent[r] == Absent) continue;
+            var isFile = (_attributes[r] & DirectoryAttribute) == 0;
+            _size[r] = isFile && r < n ? Math.Max(0, sizes[r]) : 0;
+            _modified[r] = r < n ? modified[r] : 0;
+        }
+        for (var r = 0; r < _parent.Length; r++)
+            if (_parent[r] >= 0 && (_attributes[r] & DirectoryAttribute) == 0 && _size[r] != 0) AddToAncestors(_parent[r], _size[r]);
+        HasSizes = true;
+    }
+
+    // call inside a write
+    public void SetFileInfo(ulong reference, long size, long modified)
+    {
+        var r = Record(reference);
+        if (!HasSizes || r >= _parent.Length || _parent[r] == Absent || _sequence[r] != Sequence(reference)) return;
+        _modified[r] = modified;
+        if ((_attributes[r] & DirectoryAttribute) != 0) return;
+        var delta = size - _size[r];
+        _size[r] = size;
+        if (r != RootRecord) AddToAncestors(_parent[r], delta);
+    }
+
+    public long? FolderSize(ulong reference)
+    {
+        _lock.EnterReadLock();
+        try
+        {
+            var r = Record(reference);
+            if (!HasSizes || r >= _parent.Length || _parent[r] == Absent || _sequence[r] != Sequence(reference)) return null;
+            return (_attributes[r] & DirectoryAttribute) != 0 ? _size[r] : null;
+        }
+        finally { _lock.ExitReadLock(); }
     }
 
     private void CompactNames()
@@ -267,7 +345,9 @@ public sealed class VolumeIndex
                     }
                     if (!ok) continue;
                 }
-                hits.Add(new IndexHit(new string(buffer, 0, length), _attributes[r], key));
+                hits.Add(HasSizes
+                    ? new IndexHit(new string(buffer, 0, length), _attributes[r], key, _size[r], _modified[r])
+                    : new IndexHit(new string(buffer, 0, length), _attributes[r], key));
             }
             return (hits, total);
         }

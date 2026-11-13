@@ -31,6 +31,27 @@ public class FileOperationTests : IDisposable
     }
 
     [Fact]
+    public async Task Sync_copies_each_item_into_its_own_folder_in_one_operation()
+    {
+        var left = Directory.CreateDirectory(Path.Combine(_root, "L", "sub")).Parent!.FullName;
+        var right = Directory.CreateDirectory(Path.Combine(_root, "R", "sub")).Parent!.FullName;
+        File.WriteAllText(Path.Combine(left, "top.txt"), "new top");
+        File.WriteAllText(Path.Combine(left, "sub", "deep.txt"), "deep");
+        File.WriteAllText(Path.Combine(right, "top.txt"), "old top");
+
+        var log = new FileOpLog();
+        var result = await FileOperations.SyncAsync([],
+            [(await ParseAsync(Path.Combine(left, "top.txt")), await ParseAsync(right)),
+             (await ParseAsync(Path.Combine(left, "sub", "deep.txt")), await ParseAsync(Path.Combine(right, "sub")))],
+            IntPtr.Zero, log);
+
+        Assert.Equal(FileOpResult.Succeeded, result);
+        Assert.Equal("new top", File.ReadAllText(Path.Combine(right, "top.txt")));
+        Assert.Equal("deep", File.ReadAllText(Path.Combine(right, "sub", "deep.txt")));
+        Assert.Equal(2, log.TopLevel(FileOpKind.Copy).Count(e => e.Result is not null));
+    }
+
+    [Fact]
     public async Task Copy_into_same_folder_logs_the_renamed_copy()
     {
         var file = Path.Combine(_root, "note.txt");

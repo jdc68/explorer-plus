@@ -52,6 +52,12 @@ public sealed class AppSettings
     public string StartLocation { get; set; } = ShellLocation.Known.Home;
 
     public List<string> LastSession { get; set; } = [];
+
+    // named tab sets (More ▸ Workspaces, or the command palette)
+    public List<Workspace> Workspaces { get; set; } = [];
+
+    // Explorer+ tags: path -> tag names
+    public Dictionary<string, List<string>> Tags { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public List<string> PinnedFolders { get; set; } = [];
 
     /// <summary>Folders opened lately, newest first, for the taskbar jump list.</summary>
@@ -88,7 +94,12 @@ public sealed class AppSettings
     private static string FilePath =>
         Path.Combine(AppPaths.DataFolder, "settings.json");
 
-    private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
+    // the window position is NaN until the first window closes
+    private static readonly JsonSerializerOptions Json = new()
+    {
+        WriteIndented = true,
+        NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals,
+    };
 
     private const int CurrentFormat = 1;
 

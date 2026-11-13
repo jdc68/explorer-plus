@@ -136,11 +136,29 @@ public sealed class IndexHost : IDisposable
             Log?.Invoke($"Slow search ({sw.ElapsedMilliseconds:N0} ms, {total:N0} matches, {opened:N0} folders checked): {request.Query}");
         hits.Sort((a, b) => a.Key.CompareTo(b.Key));
         if (hits.Count > limit) hits.RemoveRange(limit, hits.Count - limit);
-        return new SearchResponse(SearchStatus.Ok, total, hits.Select(h => new SearchHit(h.Path, h.Attributes)).ToList(), scanning);
+        return new SearchResponse(SearchStatus.Ok, total, hits.Select(h => new SearchHit(h.Path, h.Attributes, h.Size, h.Modified)).ToList(), scanning);
+    }
+
+    // -1 when unknown or the caller may not list the folder; call it impersonating the client, like Search
+    public long[] FolderSizes(IReadOnlyList<string> paths)
+    {
+        var indexes = Readers.Select(r => r.Index).OfType<VolumeIndex>().Where(i => i.HasSizes).ToList();
+        var sizes = new long[paths.Count];
+        for (var i = 0; i < paths.Count; i++)
+        {
+            sizes[i] = -1;
+            if (indexes.Count == 0) continue;
+            using var handle = Open(paths[i], VolumeNative.FILE_LIST_DIRECTORY);
+            if (handle.IsInvalid || !VolumeNative.GetFileInformationByHandle(handle, out var info)) continue;
+            var index = indexes.FirstOrDefault(x => x.SerialNumber == info.VolumeSerialNumber);
+            var reference = ((ulong)info.FileIndexHigh << 32) | info.FileIndexLow;
+            if (index?.FolderSize(reference) is { } size) sizes[i] = size;
+        }
+        return sizes;
     }
 
     public StatusResponse Status() =>
-        new(IndexProtocol.Version, Readers.Select(r => new VolumeStatus(r.Root, r.State, r.Index?.Count ?? 0, r.Error)).ToList());
+        new(IndexProtocol.Version, Readers.Select(r => new VolumeStatus(r.Root, r.State, r.Index?.Count ?? 0, r.Error, r.Index?.HasSizes == true)).ToList());
 
     private static bool TryOpenScope(string path, out uint serial, out ulong reference)
     {

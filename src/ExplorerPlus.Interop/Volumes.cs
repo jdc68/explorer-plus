@@ -75,6 +75,19 @@ public static class UsnRecord
     public const uint REASON_RENAME_OLD_NAME = 0x00001000;
     public const uint REASON_RENAME_NEW_NAME = 0x00002000;
     public const uint REASON_BASIC_INFO_CHANGE = 0x00008000;
+    public const uint REASON_DATA_OVERWRITE = 0x00000001;
+    public const uint REASON_DATA_EXTEND = 0x00000002;
+    public const uint REASON_DATA_TRUNCATION = 0x00000004;
+    public const uint REASON_CLOSE = 0x80000000;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public struct FILE_ID_DESCRIPTOR
+{
+    public uint Size; // 24
+    public int Type; // 0: FileIdType
+    public long FileId;
+    public long Unused; // the union is 16 bytes (room for a GUID)
 }
 
 public static class VolumeNative
@@ -125,6 +138,18 @@ public static class VolumeNative
 
     [DllImport(Dll)]
     public static extern uint GetLogicalDrives();
+
+    [DllImport(Dll, SetLastError = true)]
+    public static extern SafeFileHandle OpenFileById(SafeFileHandle volumeHint, ref FILE_ID_DESCRIPTOR id, uint access, uint share, IntPtr security, uint flags);
+
+    public const int THREAD_MODE_BACKGROUND_BEGIN = 0x00010000, THREAD_MODE_BACKGROUND_END = 0x00020000;
+
+    [DllImport(Dll)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool SetThreadPriority(IntPtr thread, int priority);
+
+    [DllImport(Dll)]
+    public static extern IntPtr GetCurrentThread();
 }
 
 [StructLayout(LayoutKind.Sequential)]

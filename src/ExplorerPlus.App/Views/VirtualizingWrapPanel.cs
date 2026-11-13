@@ -44,6 +44,36 @@ public sealed class VirtualizingWrapPanel : VirtualizingPanel, IScrollInfo
     private int _measureRetries;
     private int _itemCount;
 
+    private INotifyCollectionChanged? _watchedItems;
+
+    public VirtualizingWrapPanel()
+    {
+        Loaded += (_, _) =>
+        {
+            WatchOwnerItems();
+            _measureRetries = 0;
+            InvalidateMeasure();
+        };
+        Unloaded += (_, _) => Watch(null);
+    }
+
+    // a window that opens straight into an icon view can get its items before the generator tells this panel,
+    // and then nothing measures it again
+    private void WatchOwnerItems() => Watch(IsItemsHost ? ItemsControl.GetItemsOwner(this)?.Items : null);
+
+    private void Watch(INotifyCollectionChanged? items)
+    {
+        if (ReferenceEquals(items, _watchedItems)) return;
+        if (_watchedItems is not null) _watchedItems.CollectionChanged -= OnOwnerItemsChanged;
+        _watchedItems = items;
+        if (items is not null) items.CollectionChanged += OnOwnerItemsChanged;
+    }
+
+    private void OnOwnerItemsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (InternalChildren.Count == 0) InvalidateMeasure();
+    }
+
     private bool Horizontal => Orientation == Orientation.Horizontal;
 
     /// <summary>Items per row (horizontal) or per column (vertical) at the current size.</summary>
@@ -94,6 +124,7 @@ public sealed class VirtualizingWrapPanel : VirtualizingPanel, IScrollInfo
     protected override void OnIsItemsHostChanged(bool oldIsItemsHost, bool newIsItemsHost)
     {
         base.OnIsItemsHostChanged(oldIsItemsHost, newIsItemsHost);
+        if (IsLoaded) WatchOwnerItems();
         InvalidateMeasure();
     }
 

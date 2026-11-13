@@ -48,6 +48,32 @@ public static class FastFolderEnumerator
         finally { Kernel32.FindClose(handle); }
     }
 
+    // for the index service's hits, which carry size and time, so no disk access is needed
+    public static FolderEntry? FromIndex(string path, uint attrs, long size, long modifiedFileTime)
+    {
+        var slash = path.LastIndexOf('\\');
+        if (slash <= 0 || slash == path.Length - 1) return null;
+        var name = path[(slash + 1)..];
+        var isDir = (attrs & FileAttr.DIRECTORY) != 0;
+        var ext = isDir ? "" : System.IO.Path.GetExtension(name);
+        var (typeName, icon) = ShellInfoCache.Get(ext, isDir);
+        return new FolderEntry
+        {
+            Name = name,
+            DisplayName = name,
+            Path = path,
+            FileAttributes = attrs,
+            IsFolder = isDir,
+            Size = isDir ? -1 : size,
+            KnownFolderSize = isDir && size >= 0 ? size : null,
+            Modified = FromFileTime(modifiedFileTime),
+            TypeName = typeName,
+            IconIndex = icon,
+            NeedsRealIcon = isDir ? (attrs & (FileAttr.READONLY | FileAttr.SYSTEM)) != 0 : ShellInfoCache.HasPerFileIcon(ext),
+            IsBrowsableFile = !isDir && IsArchiveFolder(ext),
+        };
+    }
+
     private static unsafe FolderEntry? ToEntry(string dir, ref WIN32_FIND_DATAW data)
     {
         string name;
@@ -84,9 +110,10 @@ public static class FastFolderEnumerator
     // Windows' built-in compressed folder handler makes these browsable like folders.
     private static bool IsArchiveFolder(string ext) => ext.Equals(".zip", StringComparison.OrdinalIgnoreCase);
 
-    private static DateTime? FromFileTime(FILETIME32 ft)
+    private static DateTime? FromFileTime(FILETIME32 ft) => FromFileTime(ft.ToLong());
+
+    private static DateTime? FromFileTime(long v)
     {
-        var v = ft.ToLong();
         if (v <= 0) return null;
         try { return DateTime.FromFileTime(v); }
         catch (ArgumentOutOfRangeException) { return null; }

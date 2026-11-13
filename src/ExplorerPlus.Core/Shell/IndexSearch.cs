@@ -104,7 +104,7 @@ public static partial class IndexSearch
     public static ShellLocation? FromUrl(string url)
     {
         if (!IsUrl(url)) return null;
-        string? query = null, scopePath = null;
+        string? query = "", scopePath = null;
         foreach (var part in url[Scheme.Length..].Split('&', StringSplitOptions.RemoveEmptyEntries))
         {
             var eq = part.IndexOf('=');
@@ -115,15 +115,19 @@ public static partial class IndexSearch
             if (part[..eq].Equals("query", StringComparison.OrdinalIgnoreCase)) query = value;
             else if (part[..eq].Equals("in", StringComparison.OrdinalIgnoreCase)) scopePath = value;
         }
-        if (string.IsNullOrWhiteSpace(query)) return null;
         var pidl = ShellNative.TryParse(scopePath ?? ShellLocation.Known.ThisPC);
         return pidl is null ? null : Create(query, ShellLocation.FromPidl(pidl));
     }
 
-    /// <summary>Asks the service, then stats the hits a chunk at a time so the first rows show at once.</summary>
+    /// <summary>Asks the service, then stats the hits a chunk at a time so the first rows show at once (no stat once the service knows sizes).</summary>
     internal static IEnumerable<FolderEntry> Enumerate(ShellLocation location, CancellationToken ct)
     {
         var info = location.IndexResults!;
+        if (string.IsNullOrWhiteSpace(location.SearchQuery))
+        {
+            info.Total = info.Count = 0;
+            yield break;
+        }
         var options = Options?.Invoke() ?? new IndexSearchOptions();
         var scope = location.SearchScope is { IsThisPC: false, FileSystemPath: { } path } ? path : null;
         var request = new SearchRequest(location.SearchQuery ?? "", scope, Limit, options.IncludeHidden, options.IncludeProtected);
@@ -138,8 +142,30 @@ public static partial class IndexSearch
         for (var i = 0; i < response.Hits.Count; i += chunk)
         {
             ct.ThrowIfCancellationRequested();
-            var paths = response.Hits.Skip(i).Take(chunk).Select(h => h.Path).ToList();
-            foreach (var entry in HomeFeed.StatAll(paths, ct)) yield return entry;
+            var hits = response.Hits.Skip(i).Take(chunk).ToList();
+            var unknown = hits.Where(h => h.Size < 0 || h.Modified <= 0).Select(h => h.Path).ToList();
+            var statted = unknown.Count == 0 ? null
+                : HomeFeed.StatAll(unknown, ct).Where(e => e.Path is not null).ToDictionary(e => e.Path!, StringComparer.OrdinalIgnoreCase);
+            foreach (var hit in hits)
+            {
+                var entry = hit.Size >= 0 && hit.Modified > 0
+                    ? FastFolderEnumerator.FromIndex(hit.Path, hit.Attributes, hit.Size, hit.Modified)
+                    : statted!.GetValueOrDefault(hit.Path);
+                if (entry is not null) yield return entry;
+            }
         }
+    }
+
+    /// <summary>
+    /// Folder totals from the index service, -1 for each one it can't answer; null when the service has no sizes for
+    /// any of these drives, so the caller measures them itself.
+    /// </summary>
+    public static async Task<long[]?> GetFolderSizesAsync(IReadOnlyList<string> paths, CancellationToken ct = default)
+    {
+        if (paths.Count == 0 || paths.Count > IndexProtocol.MaxFolderSizes) return null;
+        var status = await GetStatusAsync(ct: ct).ConfigureAwait(false);
+        var roots = status?.Volumes.Where(v => v.HasSizes).Select(v => v.Root).ToList();
+        if (roots is not { Count: > 0 } || !paths.Any(p => roots.Any(r => p.StartsWith(r, StringComparison.OrdinalIgnoreCase)))) return null;
+        return await IndexClient.GetFolderSizesAsync(paths, ct).ConfigureAwait(false);
     }
 }

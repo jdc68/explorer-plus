@@ -65,6 +65,7 @@ public partial class App : Application
         AppSettings.Load();
         ApplyTheme();
         FolderLoader.HomeOptions = QuickAccess.HomeOptions;
+        TagView.Paths = tag => Current.Dispatcher.Invoke(() => Tags.PathsWith(tag));
         IndexSearch.Options = () => new IndexSearchOptions(AppSettings.Current.ShowHiddenFiles, AppSettings.Current.ShowProtectedOsFiles);
         _ = ShellNewTemplates.GetAsync(); // read the New ▸ list in the background so the menu opens instantly
         FolderSizeWatcher.Start();
@@ -162,6 +163,13 @@ public partial class App : Application
         var window = new MainWindow(targets, select);
         window.Show();
         window.BringToFront();
+    }
+
+    public static void OpenWorkspace(Workspace workspace)
+    {
+        var w = new MainWindow(workspace);
+        w.Show();
+        w.BringToFront();
     }
 
     public static void OpenWindow(string parsingName)

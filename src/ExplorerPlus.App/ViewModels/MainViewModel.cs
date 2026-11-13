@@ -7,6 +7,7 @@ using ExplorerPlus.App.Infrastructure;
 using ExplorerPlus.App.Services;
 using ExplorerPlus.Core.Navigation;
 using ExplorerPlus.Core.Shell;
+using ExplorerPlus.Core.Threading;
 using ExplorerPlus.Interop;
 
 namespace ExplorerPlus.App.ViewModels;
@@ -340,7 +341,54 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     }
 
     // A search tab comes back as the folder that was searched.
-    public IReadOnlyList<string> SessionTabs => Tabs.Where(t => t.Location is not null).Select(t => (t.Location!.SearchScope ?? t.Location).EditText).ToList();
+    public IReadOnlyList<string> SessionTabs => Tabs.Where(t => t.Location is not null).Select(t => Persisted(t.Location!)).ToList();
+
+    // what reopens a location later: instant searches as themselves, other searches as their folder
+    private static string Persisted(ShellLocation l) => l.IsIndexSearch ? l.ParsingName : (l.SearchScope ?? l).EditText;
+
+    public Workspace CaptureWorkspace(string name)
+    {
+        var open = Tabs.Where(t => t.Location is not null).ToList();
+        return new Workspace
+        {
+            Name = name,
+            Active = Math.Max(0, CurrentTab is null ? 0 : open.IndexOf(CurrentTab)),
+            Tabs = open.Select(t => new WorkspaceTab
+            {
+                Left = Persisted(t.Location!),
+                LeftTitle = t.Location!.DisplayName,
+                Right = t.Partner?.Location is { } r ? Persisted(r) : null,
+                RightTitle = t.Partner?.Location?.DisplayName,
+            }).ToList(),
+        };
+    }
+
+    public async Task OpenWorkspaceAsync(Workspace workspace)
+    {
+        for (var i = 0; i < workspace.Tabs.Count; i++)
+        {
+            var saved = workspace.Tabs[i];
+            var tab = await OpenTabAsync(saved.Left, activate: i == workspace.Active || CurrentTab is null);
+            if (tab is null || saved.Right is null || await ShellLocation.ResolveAsync(saved.Right) is not { } right) continue;
+            var partner = new TabViewModel();
+            Subscribe(partner);
+            tab.Partner = partner;
+            await partner.NavigateAsync(right);
+        }
+    }
+
+    /// <summary>
+    /// A new tab that searches every drive as you type (instant search), or This PC with the search box ready for
+    /// Windows Search when the index service isn't running.
+    /// </summary>
+    public async Task<TabViewModel?> OpenSearchEverywhereAsync()
+    {
+        var thisPc = await ShellLocation.ResolveAsync(ShellLocation.Known.ThisPC);
+        if (thisPc is null) return null;
+        if (await IndexSearch.CanSearchAsync(thisPc)) return await OpenTabAsync(IndexSearch.Create("", thisPc));
+        ShowNotice("Searching with Windows Search. Settings ▸ Instant search finds files by name as you type.");
+        return await OpenTabAsync(thisPc);
+    }
 
     // ---------- Navigation ----------
 
@@ -491,6 +539,31 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (!permanent) UndoService.PushFrom(log, FileOpKind.Delete, "Delete");
     }
 
+    public async Task SyncAsync(SyncPlan plan)
+    {
+        if (plan.IsEmpty) return;
+        var (deletes, copies) = await StaWorkerPool.General.Run(() => (
+            plan.Deletes.Select(ShellNative.TryParse).OfType<Pidl>().ToList(),
+            plan.Copies.Select(c => (Item: ShellNative.TryParse(c.Source), Destination: ShellNative.TryParse(c.DestinationFolder)))
+                .Where(c => c.Item is not null && c.Destination is not null).Select(c => (c.Item!, c.Destination!)).ToList()));
+        var (log, progress) = TrackedLog();
+        FileOpResult result;
+        using (progress) result = await FileOperations.SyncAsync(deletes, copies, Hwnd, log);
+        var recycled = log.TopLevel(FileOpKind.Delete).Where(e => e.RecycledItem is not null && e.Source is not null).ToList();
+        var copied = log.TopLevel(FileOpKind.Copy).Select(e => e.Result).OfType<string>().ToList();
+        var steps = new List<UndoRecord>();
+        if (recycled.Count > 0) steps.Add(new RecycledRecord(recycled.Select(e => e.RecycledItem!).ToList(), recycled.Select(e => e.Source!).ToList(), "Sync"));
+        if (copied.Count > 0) steps.Add(new CreatedRecord(copied, "Sync"));
+        if (steps.Count > 0) UndoService.Push(new CompositeRecord(steps, "Sync"));
+        ShowNotice(result switch
+        {
+            FileOpResult.Cancelled => $"Sync stopped after {copied.Count:N0} of {copies.Count:N0} copies.",
+            FileOpResult.Failed when copied.Count < copies.Count => $"Copied {copied.Count:N0} of {copies.Count:N0} items; some couldn't be synced.",
+            _ => $"Synced: {copied.Count:N0} item{(copied.Count == 1 ? "" : "s")} copied"
+                 + (recycled.Count > 0 ? $", {recycled.Count:N0} sent to the Recycle Bin." : "."),
+        });
+    }
+
     public async Task<bool> RenameAsync(ItemViewModel item, string newName)
     {
         newName = newName.Trim();
@@ -504,7 +577,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         var log = new FileOpLog();
         var result = await FileOperations.RenameAsync(pidl, newName, Hwnd, log);
         UndoService.PushFrom(log, FileOpKind.Rename, "Rename");
-        if (log.TopLevel(FileOpKind.Rename).FirstOrDefault() is { Source: { } from, Result: { } to }) Stars.Rename(from, to);
+        if (log.TopLevel(FileOpKind.Rename).FirstOrDefault() is { Source: { } from, Result: { } to })
+        {
+            Stars.Rename(from, to);
+            Tags.Rename(from, to);
+        }
         return result == FileOpResult.Succeeded;
     }
 
@@ -518,7 +595,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         try { result = await BatchRename.ApplyAsync(work, Hwnd); }
         catch (Exception ex) { ShowNotice(ex.Message); return; }
         foreach (var (now, oldName) in result.Renamed)
+        {
             Stars.Rename(Path.Combine(Path.GetDirectoryName(now) ?? "", oldName), now);
+            Tags.Rename(Path.Combine(Path.GetDirectoryName(now) ?? "", oldName), now);
+        }
         if (result.Renamed.Count > 0) UndoService.Push(new BatchRenameRecord(result.Renamed));
         ShowNotice(result.Renamed.Count == work.Count
             ? $"Renamed {work.Count} item{(work.Count == 1 ? "" : "s")}."

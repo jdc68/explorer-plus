@@ -26,6 +26,12 @@ public static class FolderLoader
             : location.IsIndexSearch
             ? Task.Factory.StartNew(() => Produce(IndexSearch.Enumerate(location, ct), channel.Writer, ct),
                 ct, TaskCreationOptions.LongRunning, TaskScheduler.Default)
+            : location.IsDuplicates
+            ? Task.Factory.StartNew(() => Produce(DuplicateFinder.Enumerate(location, ct), channel.Writer, ct),
+                ct, TaskCreationOptions.LongRunning, TaskScheduler.Default)
+            : location.IsTagView
+            ? Task.Factory.StartNew(() => Produce(TagView.Enumerate(location, ct), channel.Writer, ct),
+                ct, TaskCreationOptions.LongRunning, TaskScheduler.Default)
             : location.IsFileSystemFolder
             ? Task.Factory.StartNew(() => Produce(FastFolderEnumerator.Enumerate(location.FileSystemPath!, ct), channel.Writer, ct),
                 ct, TaskCreationOptions.LongRunning, TaskScheduler.Default)

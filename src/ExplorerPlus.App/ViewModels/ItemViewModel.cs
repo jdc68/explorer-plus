@@ -25,6 +25,7 @@ public sealed class ItemViewModel : ObservableObject
     {
         _entry = entry;
         _iconIndex = entry.IconIndex;
+        if (AppSettings.Current.ShowFolderSizes) _folderSize = entry.KnownFolderSize;
     }
 
     public FolderEntry Entry => _entry;
@@ -117,6 +118,7 @@ public sealed class ItemViewModel : ObservableObject
     public async Task LoadPropertiesAsync(IReadOnlyCollection<string> keys)
     {
         var wanted = keys.Where(k => !HasProperty(k)).ToList();
+        if (wanted.RemoveAll(ColumnCatalog.IsCustom) > 0) await LoadCustomAsync(keys.Where(k => ColumnCatalog.IsCustom(k) && !HasProperty(k)).ToList());
         if (wanted.Count == 0) return;
         var path = _entry.Path;
         // Items listed by the shell (Recycle Bin, search results) carry properties only their own folder knows,
@@ -136,6 +138,41 @@ public sealed class ItemViewModel : ObservableObject
         }
         OnPropertyChanged("Item[]");
     }
+
+    private async Task LoadCustomAsync(List<string> keys)
+    {
+        foreach (var k in keys)
+        {
+            var value = PropertyValue.Empty;
+            if (k == ColumnCatalog.Tags && Tags.Of(_entry.Path) is { Count: > 0 } tags)
+            {
+                var text = string.Join(", ", tags);
+                value = new PropertyValue(text, text);
+            }
+            else if (k == ColumnCatalog.Git && _entry.Path is { } path)
+            {
+                GitState? state = null;
+                try { state = await GitStatus.GetAsync(path, _entry.IsFolder); }
+                catch { }
+                if (state is { } s) value = new PropertyValue(GitStatus.Label(s), (int)s);
+            }
+            _props ??= new Dictionary<string, PropertyValue>(StringComparer.OrdinalIgnoreCase);
+            _props[k] = value;
+            _pendingProps?.Remove(k);
+        }
+        OnPropertyChanged("Item[]");
+    }
+
+    // tags or the repository changed: read these columns again when they're shown
+    public void ForgetCustomColumns()
+    {
+        var custom = _props?.Keys.Where(ColumnCatalog.IsCustom).ToList();
+        if (custom is not { Count: > 0 }) return;
+        foreach (var k in custom) _props!.Remove(k);
+        OnPropertyChanged("Item[]");
+    }
+
+    public bool IsTagged(string tag) => Tags.Has(_entry.Path, tag);
 
     // ---------- Grouping (set by the tab before the list is published) ----------
 

@@ -56,6 +56,14 @@ public static class IndexClient
         return reply is null ? null : IndexProtocol.DecodeStatusResponse(reply);
     }
 
+    public static async Task<long[]?> GetFolderSizesAsync(IReadOnlyList<string> paths, CancellationToken ct = default)
+    {
+        var reply = await ExchangeAsync(IndexProtocol.EncodeFolderSizes(paths), ct).ConfigureAwait(false);
+        if (reply is null) return null;
+        var sizes = IndexProtocol.DecodeFolderSizesResponse(reply);
+        return sizes.Length == paths.Count ? sizes : null;
+    }
+
     private static async Task<byte[]?> ExchangeAsync(byte[] request, CancellationToken ct)
     {
         // Impersonation lets the service check folders with this user's rights, so results only show what we may see.

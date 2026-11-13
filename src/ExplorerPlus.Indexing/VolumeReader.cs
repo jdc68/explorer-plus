@@ -72,6 +72,7 @@ public sealed class VolumeReader : IDisposable
                 Index = index;
                 State = VolumeState.Ready;
                 Error = null;
+                ReadSizes(volume, index, ct);
                 Follow(volume, index, journal, buffer, ct); // returns when the journal needs a fresh scan
             }
             catch (OperationCanceledException) { return; }
@@ -82,6 +83,30 @@ public sealed class VolumeReader : IDisposable
                 Log?.Invoke($"{Root}: {ex}");
                 ct.WaitHandle.WaitOne(RetryInterval);
             }
+        }
+    }
+
+    private void ReadSizes(SafeFileHandle volume, VolumeIndex index, CancellationToken ct)
+    {
+        var background = VolumeNative.SetThreadPriority(VolumeNative.GetCurrentThread(), VolumeNative.THREAD_MODE_BACKGROUND_BEGIN);
+        try
+        {
+            var sw = Stopwatch.StartNew();
+            var mft = MftReader.Read(volume, ct);
+            index.EnterWrite();
+            try { index.ApplySizes(mft.Sizes, mft.Modified); }
+            finally { index.ExitWrite(); }
+            Log?.Invoke($"{Root}: read sizes of {mft.Sizes.Length:N0} records in {sw.ElapsedMilliseconds:N0} ms");
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            // names still work, folder sizes just aren't instant
+            Log?.Invoke($"{Root}: no sizes from the MFT: {ex}");
+        }
+        finally
+        {
+            if (background) VolumeNative.SetThreadPriority(VolumeNative.GetCurrentThread(), VolumeNative.THREAD_MODE_BACKGROUND_END);
         }
     }
 
@@ -161,6 +186,10 @@ public sealed class VolumeReader : IDisposable
             ReasonMask = 0xFFFFFFFF,
             UsnJournalID = journal.UsnJournalID,
         };
+        using var rootHandle = VolumeNative.CreateFileW(Root, VolumeNative.FILE_READ_ATTRIBUTES,
+            VolumeNative.FILE_SHARE_READ | VolumeNative.FILE_SHARE_WRITE | VolumeNative.FILE_SHARE_DELETE, IntPtr.Zero,
+            VolumeNative.OPEN_EXISTING, VolumeNative.FILE_FLAG_BACKUP_SEMANTICS, IntPtr.Zero);
+        var changed = new HashSet<ulong>();
         fixed (byte* buf = buffer)
         {
             while (!ct.IsCancellationRequested)
@@ -188,13 +217,46 @@ public sealed class VolumeReader : IDisposable
                         var record = buf + offset;
                         var length = *(uint*)record;
                         if (length == 0) break;
-                        if (*(ushort*)(record + UsnRecord.MajorVersion) == 2) Apply(index, record, scanning: false);
+                        if (*(ushort*)(record + UsnRecord.MajorVersion) == 2)
+                        {
+                            Apply(index, record, scanning: false);
+                            if (index.HasSizes && SizeMayHaveChanged(*(uint*)(record + UsnRecord.Reason)))
+                                changed.Add(*(ulong*)(record + UsnRecord.FileReferenceNumber));
+                        }
                         offset += (int)length;
                     }
                 }
                 finally { index.ExitWrite(); }
+                if (changed.Count > 0 && !rootHandle.IsInvalid) RefreshSizes(index, rootHandle, changed);
             }
         }
+    }
+
+    private static bool SizeMayHaveChanged(uint reason) =>
+        (reason & UsnRecord.REASON_CLOSE) != 0 && (reason & UsnRecord.REASON_FILE_DELETE) == 0 &&
+        (reason & (UsnRecord.REASON_DATA_OVERWRITE | UsnRecord.REASON_DATA_EXTEND | UsnRecord.REASON_DATA_TRUNCATION |
+                   UsnRecord.REASON_BASIC_INFO_CHANGE | UsnRecord.REASON_FILE_CREATE | UsnRecord.REASON_RENAME_NEW_NAME)) != 0;
+
+    // the journal says what changed, not the new size, so ask the file itself
+    private static void RefreshSizes(VolumeIndex index, SafeFileHandle volumeHint, HashSet<ulong> references)
+    {
+        var infos = new List<(ulong Reference, long Size, long Modified)>(references.Count);
+        foreach (var reference in references)
+        {
+            var id = new FILE_ID_DESCRIPTOR { Size = 24, Type = 0, FileId = (long)reference };
+            using var handle = VolumeNative.OpenFileById(volumeHint, ref id, VolumeNative.FILE_READ_ATTRIBUTES,
+                VolumeNative.FILE_SHARE_READ | VolumeNative.FILE_SHARE_WRITE | VolumeNative.FILE_SHARE_DELETE, IntPtr.Zero, VolumeNative.FILE_FLAG_BACKUP_SEMANTICS);
+            if (handle.IsInvalid || !VolumeNative.GetFileInformationByHandle(handle, out var info)) continue;
+            infos.Add((reference, ((long)info.FileSizeHigh << 32) | info.FileSizeLow, info.LastWriteTime));
+        }
+        references.Clear();
+        if (infos.Count == 0) return;
+        index.EnterWrite();
+        try
+        {
+            foreach (var (reference, size, modified) in infos) index.SetFileInfo(reference, size, modified);
+        }
+        finally { index.ExitWrite(); }
     }
 
     private static unsafe void Apply(VolumeIndex index, byte* record, bool scanning)

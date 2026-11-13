@@ -54,6 +54,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
     {
         FolderSizeWatcher.Changed += OnFolderSizesInvalidated;
         Stars.Changed += OnStarsChanged;
+        Tags.Changed += OnTagsChanged;
     }
 
     public RangeObservableCollection<ItemViewModel> Items { get; } = new();
@@ -100,6 +101,10 @@ public sealed class TabViewModel : ObservableObject, IDisposable
     public string? ToolTip => _location is null ? null : _location.FileSystemPath ?? _location.DisplayName;
     public string SearchPlaceholder => IsLiveSearch
         ? $"Search {_location!.SearchScope?.DisplayName}"
+        : _location?.IsTagView == true
+        ? $"Filter items tagged “{_location.Tag}”"
+        : _location?.IsDuplicates == true
+        ? $"Filter {_location.DisplayName}"
         : Kind == LocationKind.Search
         ? $"Filter results for “{_location!.SearchQuery}”"
         : CanSearch ? $"Search {_location!.DisplayName}" : $"Filter {_location?.DisplayName ?? ""}";
@@ -107,7 +112,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
     public LocationKind Kind => _location switch
     {
         null => LocationKind.Folder,
-        { IsSearch: true } => LocationKind.Search,
+        { IsSearch: true } or { IsTagView: true } or { IsDuplicates: true } => LocationKind.Search,
         { IsHome: true } => LocationKind.Home,
         { IsThisPC: true } => LocationKind.ThisPC,
         { IsNetwork: true } => LocationKind.Network,
@@ -158,6 +163,10 @@ public sealed class TabViewModel : ObservableObject, IDisposable
 
     public string EmptyMessage => ListFilter.Length > 0 ? "No items match your filter." : Kind switch
     {
+        LocationKind.Search when IsLiveSearch && string.IsNullOrWhiteSpace(_location!.SearchQuery) =>
+            $"Type a name to search {_location.SearchScope?.DisplayName}. Words: all must match · *.pdf: whole name · folder\\name: path · !word: exclude.",
+        LocationKind.Search when _location!.IsDuplicates => $"No two files in {_location.DuplicatesIn} have the same content.",
+        LocationKind.Search when _location!.IsTagView => $"Nothing is tagged “{_location.Tag}” any more.",
         LocationKind.Search => "No items match your search.",
         LocationKind.Home => "Pin folders and star files (Ctrl+D) to see them here.",
         LocationKind.RecycleBin => "The Recycle Bin is empty.",
@@ -262,6 +271,9 @@ public sealed class TabViewModel : ObservableObject, IDisposable
     private IDisposable? WatchFor(ShellLocation location)
     {
         // A search would restart on every change anywhere below it; F5 runs it again instead.
+        if (location.IsTagView || location.IsDuplicates)
+            return ShellChangeWatcher.Instance.Watch(Pidl.Desktop, true, SHCNE.DELETE | SHCNE.RMDIR | SHCNE.RENAMEITEM | SHCNE.RENAMEFOLDER,
+                c => RemoveGone(c.Path1));
         if (location.IsSearch) return null;
         if (location.IsHome)
         {
@@ -609,10 +621,13 @@ public sealed class TabViewModel : ObservableObject, IDisposable
     // ---------- View mode ----------
 
     // Every search shares one remembered view (each query has its own URL).
-    private string? FolderKey => _location?.IsSearch == true ? SearchLocation.Scheme : _location?.FileSystemPath ?? _location?.ParsingName;
+    private string? FolderKey => _location?.IsSearch == true ? SearchLocation.Scheme
+        : _location?.IsTagView == true ? TagView.Scheme
+        : _location?.IsDuplicates == true ? DuplicateFinder.Scheme
+        : _location?.FileSystemPath ?? _location?.ParsingName;
 
     private SortColumn DefaultSort => IsHome ? SortColumn.Default : SortColumn.Name;
-    private string? DefaultGroup => IsHome ? ColumnCatalog.Section : null;
+    private string? DefaultGroup => IsHome || _location?.IsDuplicates == true ? ColumnCatalog.Section : null;
 
     private ItemViewModel NewItem(FolderEntry entry) => new(entry) { ImageSize = ViewModes.ImageSize(_viewMode) };
 
@@ -664,7 +679,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         if (_sortColumn == SortColumn.Default && !IsHome) _sortColumn = SortColumn.Name;
         _sortAscending = saved?.Ascending ?? true;
         _groupBy = saved is null ? DefaultGroup : saved.GroupBy;
-        if (_groupBy == ColumnCatalog.Section && !IsHome) _groupBy = null;
+        if (_groupBy == ColumnCatalog.Section && !IsHome && _location?.IsDuplicates != true) _groupBy = null;
         _columnWidths.Clear();
         List<string>? columns = null;
         if (saved?.Columns is { Count: > 0 } stored)
@@ -749,6 +764,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
 
     private void OnShellChange(ShellChange c)
     {
+        GitStatus.Invalidate();
         var dir = _location?.FileSystemPath;
         if (dir is null || !_location!.IsFileSystemFolder)
         {
@@ -856,6 +872,36 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         UpdateStatus();
     }
 
+    // tag views and duplicates aren't folders, so they hear about deletes from anywhere
+    private void RemoveGone(string? path)
+    {
+        if (path is null || _isLoading) return;
+        if (_location?.DuplicatesIn is { } root && !IsSameOrInside(path, root.TrimEnd('\\'))) return;
+        var folder = path.TrimEnd('\\');
+        var gone = _all.Where(i => i.Entry.Path is { } p && IsSameOrInside(p, folder)).ToList();
+        if (gone.Count == 0) return;
+        if (_location?.IsDuplicates == true)
+        {
+            // a copy with no twin left isn't a duplicate any more
+            var left = _all.Except(gone).GroupBy(i => i.Entry.Section).Where(g => g.Count() == 1).SelectMany(g => g);
+            gone.AddRange(left.ToList());
+        }
+        foreach (var vm in gone)
+        {
+            _all.Remove(vm);
+            Items.Remove(vm);
+            if (_byName.TryGetValue(vm.Name, out var known) && known == vm) _byName.Remove(vm.Name);
+        }
+        OnPropertyChanged(nameof(ShowEmptyMessage));
+        UpdateStatus();
+    }
+
+    private void OnTagsChanged()
+    {
+        if (_location?.IsTagView == true) { ScheduleRefresh(); return; }
+        foreach (var item in _all) item.ForgetCustomColumns();
+    }
+
     private void OnStarsChanged()
     {
         foreach (var i in _all) i.RefreshStar();
@@ -906,13 +952,44 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         var wanted = candidates.Where(i => i.IsFolder && i.Entry.Path is not null).ToHashSet();
         var visible = Items.ToHashSet();
         var ordered = Items.Where(wanted.Contains).Concat(wanted.Where(i => !visible.Contains(i))).ToList();
+        var measure = new List<ItemViewModel>();
         foreach (var item in ordered)
         {
-            if (service.TryGetCached(item.Entry.Path!, out var size)) { item.SetFolderSize(size, false); continue; }
-            item.SetFolderSize(item.FolderSize, true);
-            _pendingSizes++;
-            _ = MeasureAsync(item, cts.Token);
+            if (service.TryGetCached(item.Entry.Path!, out var size)) item.SetFolderSize(size, false);
+            else
+            {
+                item.SetFolderSize(item.FolderSize, true);
+                _pendingSizes++;
+                measure.Add(item);
+            }
         }
+        if (ordered.Count > 0) _ = SizeFromIndexAsync(ordered, measure, cts.Token);
+    }
+
+    // the index service knows every folder's total at once; measure only what it can't answer
+    private async Task SizeFromIndexAsync(List<ItemViewModel> items, List<ItemViewModel> measure, CancellationToken ct)
+    {
+        long[]? sizes = null;
+        try { sizes = await IndexSearch.GetFolderSizesAsync(items.Select(i => i.Entry.Path!).ToList(), ct); }
+        catch (OperationCanceledException) { return; }
+        catch (Exception) { }
+        if (ct.IsCancellationRequested) return;
+        var pending = measure.ToHashSet();
+        var answered = false;
+        for (var i = 0; i < items.Count; i++)
+        {
+            var item = items[i];
+            if (sizes is not null && sizes[i] >= 0)
+            {
+                item.SetFolderSize(sizes[i], false);
+                if (pending.Remove(item)) { _pendingSizes--; answered = true; }
+            }
+        }
+        if (answered && pending.Count == 0 && _pendingSizes == 0 && (_sortColumn == SortColumn.Size || _groupBy == ColumnCatalog.Size))
+            _ = ApplyViewAsync(keepSelection: true);
+        if (answered) UpdateStatus();
+        foreach (var item in measure)
+            if (pending.Contains(item)) _ = MeasureAsync(item, ct);
     }
 
     private async Task MeasureAsync(ItemViewModel item, CancellationToken ct)
@@ -938,7 +1015,17 @@ public sealed class TabViewModel : ObservableObject, IDisposable
 
     private void UpdateStatus()
     {
-        ItemCountText = _isLoading && Items.Count == 0 ? (IsSearch ? "Searching…" : "Loading…") : $"{Items.Count:N0} item{(Items.Count == 1 ? "" : "s")}";
+        ItemCountText = _isLoading && Items.Count == 0
+            ? _location?.IsDuplicates == true ? "Looking for duplicates…" : IsSearch ? "Searching…" : "Loading…"
+            : $"{Items.Count:N0} item{(Items.Count == 1 ? "" : "s")}";
+        if (_location?.IsDuplicates == true && _all.Count > 0)
+        {
+            var sets = _all.GroupBy(i => i.Entry.Section).ToList();
+            var spare = sets.Sum(g => (g.Count() - 1) * Math.Max(0, g.First().Entry.Size));
+            ItemCountText = $"{_all.Count:N0} files in {sets.Count:N0} set{(sets.Count == 1 ? "" : "s")} · {ItemViewModel.FormatSizeShort(spare)} in extra copies"
+                            + (_isLoading ? " · still looking" : "");
+        }
+        else if (_location?.IsDuplicates == true && !_isLoading) ItemCountText = "No duplicate files";
         if (!_isLoading && _location?.IndexResults is { } found)
         {
             if (found.Truncated) ItemCountText += $" (the best of {found.Total:N0} matches)";
@@ -966,6 +1053,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         _sizesCts?.Cancel();
         FolderSizeWatcher.Changed -= OnFolderSizesInvalidated;
         Stars.Changed -= OnStarsChanged;
+        Tags.Changed -= OnTagsChanged;
         _watch?.Dispose();
         _partner?.Dispose();
     }

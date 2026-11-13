@@ -62,16 +62,21 @@ public class SidebarFolder : SidebarItem
 {
     private bool _loaded;
 
-    public SidebarFolder(string name, string target, string? fileSystemPath, bool expandable, bool isPinned = false, bool isStarred = false)
+    public SidebarFolder(string name, string target, string? fileSystemPath, bool expandable, bool isPinned = false, bool isStarred = false,
+        string? glyph = null)
     {
         Name = name;
         Target = target;
         FileSystemPath = fileSystemPath;
         IsPinned = isPinned;
         IsStarredEntry = isStarred;
+        Glyph = glyph;
         if (expandable) Children.Add(new SidebarPlaceholder());
-        _ = LoadIconAsync();
+        if (glyph is null) _ = LoadIconAsync();
     }
+
+    // drawn instead of a shell icon (tags have none)
+    public string? Glyph { get; }
 
     /// <summary>Parsing name or path to navigate to.</summary>
     public string Target { get; }
@@ -147,6 +152,7 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
 {
     private readonly SidebarHeader _quick = new("Quick access");
     private readonly SidebarHeader _starred = new("Starred");
+    private readonly SidebarHeader _tags = new("Tags");
     private readonly SidebarHeader _drives = new("Drives");
     private readonly SidebarHeader _locations = new("Locations");
     private readonly IDisposable _driveWatch;
@@ -161,9 +167,11 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         Roots.Add(_locations);
         BuildQuickAccess();
         BuildStarred();
+        BuildTags();
         BuildLocations();
         _ = RefreshDrivesAsync();
         Stars.Changed += BuildStarred;
+        Tags.Changed += BuildTags;
 
         _driveWatch = ShellChangeWatcher.Instance.Watch(Pidl.Desktop, true,
             SHCNE.DRIVEADD | SHCNE.DRIVEREMOVED | SHCNE.MEDIAINSERTED | SHCNE.MEDIAREMOVED | SHCNE.FREESPACE | SHCNE.NETSHARE,
@@ -198,6 +206,20 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         var shown = Roots.Contains(_starred);
         if (_starred.Children.Count > 0 && !shown) Roots.Insert(Roots.IndexOf(_quick) + 1, _starred);
         else if (_starred.Children.Count == 0 && shown) Roots.Remove(_starred);
+    }
+
+    public const string TagGlyph = "\uE8EC";
+
+    private void BuildTags()
+    {
+        var names = Tags.Names;
+        if (names.SequenceEqual(_tags.Children.Select(c => c.Name))) return;
+        _tags.Children.Clear();
+        foreach (var tag in names)
+            _tags.Children.Add(new SidebarFolder(tag, TagView.Url(tag), null, expandable: false, glyph: TagGlyph));
+        var shown = Roots.Contains(_tags);
+        if (_tags.Children.Count > 0 && !shown) Roots.Insert(Roots.IndexOf(_drives), _tags);
+        else if (_tags.Children.Count == 0 && shown) Roots.Remove(_tags);
     }
 
     private void BuildLocations()
@@ -277,5 +299,6 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         _driveWatch.Dispose();
         AppSettings.Current.Changed -= OnSettingsChanged;
         Stars.Changed -= BuildStarred;
+        Tags.Changed -= BuildTags;
     }
 }

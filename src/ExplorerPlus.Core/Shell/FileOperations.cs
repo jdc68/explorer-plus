@@ -66,6 +66,16 @@ public static class FileOperations
             Check(op.NewItem(folder, FileAttr.NORMAL, name, null, IntPtr.Zero));
         });
 
+    // one operation for a folder sync: what gets replaced or removed goes to the Recycle Bin first, then each copy
+    // lands in its own folder; the user already confirmed all of it
+    public static Task<FileOpResult> SyncAsync(IReadOnlyList<Pidl> deletes, IReadOnlyList<(Pidl Item, Pidl Destination)> copies, IntPtr owner, FileOpLog? log = null) =>
+        Run(owner, log, BaseFlags | FOF.FOFX_RECYCLEONDELETE | FOF.NOCONFIRMATION, (op, keep) =>
+        {
+            if (deletes.Count > 0) Check(op.DeleteItems(keep.Add(ShellItemArray.Create(deletes)).Ptr));
+            foreach (var (item, destination) in copies)
+                Check(op.CopyItem(keep.Add(ShellNative.CreateItem(item)), keep.Add(ShellNative.CreateItem(destination)), null, IntPtr.Zero));
+        });
+
     /// <summary>Copies one item into a folder under a new name.</summary>
     public static Task<FileOpResult> CopyAsAsync(Pidl item, Pidl destination, string newName, IntPtr owner, FileOpLog? log = null) =>
         Run(owner, log, BaseFlags, (op, keep) =>

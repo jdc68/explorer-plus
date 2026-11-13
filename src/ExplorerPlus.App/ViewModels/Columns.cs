@@ -17,6 +17,11 @@ public static class ColumnCatalog
     public const string Size = "Size";
     public const string Created = "Created";
     public const string Folder = "System.ItemFolderPathDisplay";
+    public const string Git = "ExplorerPlus.Git";
+    public const string Tags = "ExplorerPlus.Tags";
+
+    // answered by Explorer+ itself rather than by the shell
+    public static bool IsCustom(string id) => id.StartsWith("ExplorerPlus.", StringComparison.Ordinal);
 
     /// <summary>Not a column: Home's grouping by section (Quick access, Starred, Recent files).</summary>
     public const string Section = "Section";
@@ -34,9 +39,11 @@ public static class ColumnCatalog
         new("System.FileAttributes", "Attributes", 90),
         new("System.FileOwner", "Owner", 170),
         new(Folder, "Location", 260),
+        new(Git, "Git status", 110, Category: "Explorer+"),
+        new(Tags, "Tags", 160, Category: "Explorer+"),
         new("System.Author", "Authors", 170, Category: "Documents"),
         new("System.Title", "Title", 200, Category: "Documents"),
-        new("System.Keywords", "Tags", 160, Category: "Documents"),
+        new("System.Keywords", "Keywords", 160, Category: "Documents"),
         new("System.Comment", "Comments", 200, Category: "Documents"),
         new("System.Rating", "Rating", 100, Category: "Documents"),
         new("System.Document.PageCount", "Pages", 70, RightAlign: true, Category: "Documents"),

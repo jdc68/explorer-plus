@@ -533,7 +533,11 @@
                     </HierarchicalDataTemplate>
                     <HierarchicalDataTemplate DataType="{x:Type vm:SidebarFolder}" ItemsSource="{Binding Children}">
                         <StackPanel Orientation="Horizontal" Margin="0,1">
-                            <Image Source="{Binding Icon}" Width="16" Height="16" Margin="0,0,8,0" />
+                            <Grid Width="16" Height="16" Margin="0,0,8,0">
+                                <Image Source="{Binding Icon}" />
+                                <TextBlock Text="{Binding Glyph}" FontFamily="{DynamicResource IconFont}" FontSize="14"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Grid>
                             <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
                         </StackPanel>
                     </HierarchicalDataTemplate>

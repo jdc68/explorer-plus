@@ -183,16 +183,137 @@ public class IndexTests
     {
         var request = new SearchRequest("report *.pdf", @"C:\Users", 500, true, false);
         Assert.Equal(request, IndexProtocol.DecodeRequest(IndexProtocol.EncodeSearch(request)));
-        Assert.Null(IndexProtocol.DecodeRequest(IndexProtocol.EncodeStatusRequest()));
+        Assert.IsType<StatusRequest>(IndexProtocol.DecodeRequest(IndexProtocol.EncodeStatusRequest()));
+        var folders = Assert.IsType<FolderSizesRequest>(IndexProtocol.DecodeRequest(IndexProtocol.EncodeFolderSizes([@"C:\Users", @"D:\"])));
+        Assert.Equal([@"C:\Users", @"D:\"], folders.Paths);
+        Assert.Equal([5L, -1L], IndexProtocol.DecodeFolderSizesResponse(IndexProtocol.EncodeFolderSizesResponse([5, -1])));
 
-        var response = new SearchResponse(SearchStatus.Ok, 7, [new(@"C:\a.txt", Normal), new(@"C:\b", Dir)], true);
+        var response = new SearchResponse(SearchStatus.Ok, 7, [new(@"C:\a.txt", Normal, 12, 34), new(@"C:\b", Dir)], true);
         var back = IndexProtocol.DecodeSearchResponse(IndexProtocol.EncodeSearchResponse(response));
         Assert.Equal(response.Hits, back.Hits);
         Assert.Equal((7, true), (back.Total, back.Scanning));
         Assert.True(back.Hits[1].IsFolder);
 
-        var status = new StatusResponse("1.2.3", [new(@"C:\", VolumeState.Ready, 42, null), new(@"D:\", VolumeState.Failed, 0, "denied")]);
+        var status = new StatusResponse("1.2.3", [new(@"C:\", VolumeState.Ready, 42, null, true), new(@"D:\", VolumeState.Failed, 0, "denied")]);
         var statusBack = IndexProtocol.DecodeStatusResponse(IndexProtocol.EncodeStatusResponse(status));
         Assert.Equal(status.Volumes, statusBack.Volumes);
+    }
+
+    [Fact]
+    public void Folder_sizes_add_up_and_follow_changes()
+    {
+        var index = Sample();
+        var sizes = new long[40];
+        var modified = new long[40];
+        (sizes[23], sizes[24], sizes[26], sizes[28], sizes[30], sizes[33]) = (100, 50, 7, 1000, 3, 20);
+        modified[28] = 777;
+        index.EnterWrite();
+        index.ApplySizes(sizes, modified);
+        index.ExitWrite();
+        Assert.True(index.HasSizes);
+        Assert.Equal(150, index.FolderSize(Ref(22)));
+        Assert.Equal(157, index.FolderSize(Ref(20)));
+        Assert.Equal(1180, index.FolderSize(RootRef));
+        Assert.Null(index.FolderSize(Ref(23)));
+        var notepad = index.Search(IndexQuery.Parse("notepad"), new IndexSearchOptions(), null, 10).Hits.Single();
+        Assert.Equal((1000L, 777L), (notepad.Size, notepad.Modified));
+
+        index.EnterWrite();
+        index.Upsert(Ref(23), Ref(32), "report.pdf", Normal); // file moved
+        index.Upsert(Ref(22), Ref(31), "Documents", Dir); // folder moved with what's in it
+        index.SetFileInfo(Ref(24), 80, 1);
+        index.Remove(Ref(33));
+        index.Upsert(Ref(26, 2), Ref(20), "new.txt", Normal); // record reused, its old file's delete missed
+        index.ExitWrite();
+        Assert.Equal(80, index.FolderSize(Ref(22)));
+        Assert.Equal(180, index.FolderSize(Ref(31)));
+        Assert.Equal(0, index.FolderSize(Ref(21)));
+        Assert.Equal(1183, index.FolderSize(RootRef));
+    }
+
+    [Fact]
+    public void Mft_records_give_sizes_times_and_data_runs()
+    {
+        var record = FileRecord(baseRef: 0, StandardInformation(0x1234567), NonResidentData(5_000_000, [0x21, 0x10, 0x00, 0x01, 0x21, 0x08, 0x80, 0xFF]));
+        var sizes = new long[50];
+        Array.Fill(sizes, -1L);
+        var modified = new long[50];
+        MftReader.ParseRecord(record.ToArray(), 40, sizes, modified);
+        Assert.Equal((5_000_000L, 0x1234567L), (sizes[40], modified[40]));
+
+        // the second run's offset is relative and negative
+        Assert.Equal([(0L, 0x100L, 0x10L), (0x10L, 0x80L, 0x8L)], MftReader.DataRuns(record.ToArray(), 1024));
+
+        // an extension record counts toward its base record
+        MftReader.ParseRecord(FileRecord(baseRef: Ref(7), ResidentData(42)), 41, sizes, modified);
+        Assert.Equal((42L, -1L), (sizes[7], sizes[41]));
+
+        // a torn write is skipped
+        var torn = FileRecord(baseRef: 0, ResidentData(9));
+        torn[1022] ^= 0xFF;
+        MftReader.ParseRecord(torn, 42, sizes, modified);
+        Assert.Equal(-1, sizes[42]);
+    }
+
+    private static byte[] FileRecord(ulong baseRef, params byte[][] attributes)
+    {
+        var r = new byte[1024];
+        "FILE"u8.CopyTo(r);
+        BitConverter.TryWriteBytes(r.AsSpan(4), (ushort)0x30); // update sequence: check value, then one saved pair per sector
+        BitConverter.TryWriteBytes(r.AsSpan(6), (ushort)3);
+        BitConverter.TryWriteBytes(r.AsSpan(0x14), (ushort)0x38);
+        BitConverter.TryWriteBytes(r.AsSpan(0x16), (ushort)1);
+        BitConverter.TryWriteBytes(r.AsSpan(0x20), baseRef);
+        var at = 0x38;
+        foreach (var a in attributes)
+        {
+            a.CopyTo(r, at);
+            at += a.Length;
+        }
+        BitConverter.TryWriteBytes(r.AsSpan(at), 0xFFFFFFFFu);
+        BitConverter.TryWriteBytes(r.AsSpan(0x30), (ushort)0xABCD);
+        foreach (var (end, saved) in new[] { (510, 0x32), (1022, 0x34) })
+        {
+            r[saved] = r[end];
+            r[saved + 1] = r[end + 1];
+            BitConverter.TryWriteBytes(r.AsSpan(end), (ushort)0xABCD);
+        }
+        return r;
+    }
+
+    private static byte[] Attribute(uint type, int length, bool nonResident)
+    {
+        var a = new byte[length];
+        BitConverter.TryWriteBytes(a, type);
+        BitConverter.TryWriteBytes(a.AsSpan(4), length);
+        a[8] = (byte)(nonResident ? 1 : 0);
+        return a;
+    }
+
+    private static byte[] StandardInformation(long modified)
+    {
+        var a = Attribute(0x10, 0x60, false);
+        BitConverter.TryWriteBytes(a.AsSpan(0x10), 0x48);
+        BitConverter.TryWriteBytes(a.AsSpan(0x14), (ushort)0x18);
+        BitConverter.TryWriteBytes(a.AsSpan(0x18 + 8), modified);
+        return a;
+    }
+
+    private static byte[] ResidentData(int size)
+    {
+        var a = Attribute(0x80, 0x18 + ((size + 7) & ~7), false);
+        BitConverter.TryWriteBytes(a.AsSpan(0x10), size);
+        BitConverter.TryWriteBytes(a.AsSpan(0x14), (ushort)0x18);
+        return a;
+    }
+
+    private static byte[] NonResidentData(long size, byte[] runs)
+    {
+        var a = Attribute(0x80, 0x50, true);
+        BitConverter.TryWriteBytes(a.AsSpan(0x20), (ushort)0x40);
+        BitConverter.TryWriteBytes(a.AsSpan(0x28), size); // allocated
+        BitConverter.TryWriteBytes(a.AsSpan(0x30), size);
+        runs.CopyTo(a, 0x40);
+        return a;
     }
 }

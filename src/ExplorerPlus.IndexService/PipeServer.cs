@@ -82,16 +82,22 @@ internal sealed class PipeServer(IndexHost host) : IDisposable
             {
                 var request = IndexProtocol.DecodeRequest(await IndexProtocol.ReadMessageAsync(pipe, ct).ConfigureAwait(false));
                 byte[] reply;
-                if (request is null)
+                // RunAsClient is synchronous on purpose: the impersonation applies to this thread only
+                switch (request)
                 {
-                    reply = IndexProtocol.EncodeStatusResponse(host.Status());
-                }
-                else
-                {
-                    SearchResponse? response = null;
-                    // Synchronous on this thread: the impersonation applies to this thread only.
-                    pipe.RunAsClient(() => response = host.Search(request, ct));
-                    reply = IndexProtocol.EncodeSearchResponse(response ?? new SearchResponse(SearchStatus.BadRequest, 0, [], false));
+                    case SearchRequest search:
+                        SearchResponse? response = null;
+                        pipe.RunAsClient(() => response = host.Search(search, ct));
+                        reply = IndexProtocol.EncodeSearchResponse(response ?? new SearchResponse(SearchStatus.BadRequest, 0, [], false));
+                        break;
+                    case FolderSizesRequest folders:
+                        long[] sizes = [];
+                        pipe.RunAsClient(() => sizes = host.FolderSizes(folders.Paths));
+                        reply = IndexProtocol.EncodeFolderSizesResponse(sizes);
+                        break;
+                    default:
+                        reply = IndexProtocol.EncodeStatusResponse(host.Status());
+                        break;
                 }
                 await IndexProtocol.WriteMessageAsync(pipe, reply, ct).ConfigureAwait(false);
                 pipe.WaitForPipeDrain();

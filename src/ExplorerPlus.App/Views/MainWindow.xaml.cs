@@ -19,6 +19,7 @@ public partial class MainWindow : Window
 {
     private readonly IReadOnlyList<string> _initialTargets;
     private readonly string? _initialSelect;
+    private Workspace? _workspace;
     private TabViewModel? _adoptTab;
     private IntPtr _hwnd;
     private ItemViewModel? _renaming;
@@ -67,6 +68,8 @@ public partial class MainWindow : Window
     }
 
     /// <summary>A window for a tab torn off another window, placed where the tab was let go.</summary>
+    public MainWindow(Workspace workspace) : this([], null) => _workspace = workspace;
+
     public MainWindow(TabViewModel tab, Point topLeft) : this([], null)
     {
         _adoptTab = tab;
@@ -112,6 +115,11 @@ public partial class MainWindow : Window
             ViewModel.AttachTab(adopted, 0);
             FocusList();
             return;
+        }
+        if (_workspace is { } workspace)
+        {
+            _workspace = null;
+            await ViewModel.OpenWorkspaceAsync(workspace);
         }
         var first = true;
         foreach (var target in _initialTargets)
@@ -506,6 +514,10 @@ public partial class MainWindow : Window
         menu.Items.Add(new Separator());
         menu.Items.Add(MenuEntry("Open terminal as administrator", null, async () => await ViewModel.OpenTerminalAsync(elevated: true), ""));
         menu.Items.Add(MenuEntry("Open in new window", "Ctrl+N", NewWindowHere, null));
+        menu.Items.Add(WorkspacesMenu());
+        menu.Items.Add(TagsMenu(Selection));
+        menu.Items.Add(MenuEntry("Find duplicate files", null, FindDuplicates, "\uE8C8"));
+        menu.Items.Add(MenuEntry("Compare and sync folders…", null, CompareFolders, "\uE8AB"));
         menu.Items.Add(new Separator());
         menu.Items.Add(MenuEntry("Map network drive…", null, ViewModel.MapNetworkDrive, "\uE8CE"));
         menu.Items.Add(MenuEntry("Disconnect network drive…", null, ViewModel.DisconnectNetworkDrive, "\uE8CD"));
@@ -839,7 +851,9 @@ public partial class MainWindow : Window
     private const int CmdCopyToOther = ShellContextMenu.FirstCustomId + 12;
     private const int CmdMoveToOther = ShellContextMenu.FirstCustomId + 13;
     private const int CmdOpenInOther = ShellContextMenu.FirstCustomId + 14;
+    private const int CmdNewTag = ShellContextMenu.FirstCustomId + 15;
     private const int CmdCompressBase = ShellContextMenu.FirstCustomId + 20; // + (int)ArchiveFormat
+    private const int CmdTagBase = ShellContextMenu.FirstCustomId + 200;
     private const int CmdChoiceLimit = 50;
     private const int CmdSortBase = ShellContextMenu.FirstCustomId + 100;
     private const int CmdGroupBase = ShellContextMenu.FirstCustomId + 150;
@@ -956,6 +970,12 @@ public partial class MainWindow : Window
             case MenuResultKind.Custom when result.CustomId is CmdCopyToOther or CmdMoveToOther:
                 await ViewModel.TransferToOtherPaneAsync(items, move: result.CustomId == CmdMoveToOther);
                 break;
+            case MenuResultKind.Custom when result.CustomId == CmdNewTag:
+                NewTag(TaggablePaths(items));
+                break;
+            case MenuResultKind.Custom when result.CustomId >= CmdTagBase && result.CustomId < CmdTagBase + CmdChoiceLimit:
+                if (Tags.Names.ElementAtOrDefault(result.CustomId - CmdTagBase) is { } tag) ToggleTag(TaggablePaths(items), tag);
+                break;
             case MenuResultKind.Custom when result.CustomId == CmdOpenInOther:
                 await OpenInOtherPaneAsync(items[0]);
                 break;
@@ -1005,6 +1025,14 @@ public partial class MainWindow : Window
                 custom.Add(new CustomMenuItem { Text = paths.Count == 1 ? "Extract here" : "Extract each here", Id = CmdExtract });
             if (paths.Count > 1) custom.Add(new CustomMenuItem { Text = $"Rename {paths.Count} items…\tF2", Id = CmdBatchRename });
         }
+        if (TaggablePaths(items) is { Count: > 0 } taggable && taggable.Count == items.Count)
+        {
+            var tags = Tags.Names.Take(CmdChoiceLimit).ToList();
+            var children = tags.Select((t, i) => new CustomMenuItem { Text = t, Id = CmdTagBase + i, IsChecked = taggable.All(p => Tags.Has(p, t)) }).ToList();
+            if (children.Count > 0) children.Add(CustomMenuItem.Separator);
+            children.Add(new CustomMenuItem { Text = "New tag…", Id = CmdNewTag });
+            custom.Add(new CustomMenuItem { Text = "Tags", Children = children });
+        }
     }
 
     /// <summary>Our own menu for selections that span several folders (Home, search results).</summary>
@@ -1024,6 +1052,7 @@ public partial class MainWindow : Window
             menu.Items.Add(MenuEntry(items.All(i => i.IsStarred) ? "Remove from Starred" : "Add to Starred", "Ctrl+D", () => ViewModel.ToggleStar(items), null));
             // 7z and tar need every item in one folder; ZIP doesn't.
             menu.Items.Add(MenuEntry("Compress to ZIP file", null, async () => await ViewModel.CompressAsync(items, ArchiveFormat.Zip), null));
+            menu.Items.Add(TagsMenu(items));
         }
         if (items.Any(i => i.Entry.RecentLink is not null))
             menu.Items.Add(MenuEntry("Remove from Recent", null, async () => await ViewModel.RemoveFromRecentAsync(items), null));
@@ -1148,6 +1177,11 @@ public partial class MainWindow : Window
     {
         if (!IsDirectTreeItem(sender, e) || sender is not TreeViewItem { DataContext: SidebarFolder folder }) return;
         e.Handled = true;
+        if (TagView.IsUrl(folder.Target))
+        {
+            ShowSidebarTagMenu(folder);
+            return;
+        }
         var pidl = ShellNative.TryParse(folder.Target);
         if (pidl is null) return;
         using var menu = ShellContextMenu.ForItems([pidl], _hwnd, null);
@@ -1265,6 +1299,8 @@ public partial class MainWindow : Window
                 e.Handled = true; FilterBox.Focus(); FilterBox.SelectAll(); return;
             case Key.T when mods == ModifierKeys.Control:
                 e.Handled = true; await ViewModel.OpenTabAsync(AppSettings.Current.StartLocation); return;
+            case Key.F when mods == (ModifierKeys.Control | ModifierKeys.Shift):
+                e.Handled = true; await SearchEverywhereAsync(); return;
             case Key.T when mods == (ModifierKeys.Control | ModifierKeys.Shift):
                 e.Handled = true; await ViewModel.ReopenClosedTabAsync(); return;
             case Key.W when mods == ModifierKeys.Control:

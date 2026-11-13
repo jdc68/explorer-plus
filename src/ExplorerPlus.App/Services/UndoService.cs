@@ -34,12 +34,25 @@ public sealed record CreatedRecord(IReadOnlyList<string> Paths, string Label) : 
 /// <summary>Items we sent to the Recycle Bin. Undo restores them to where they were.</summary>
 public sealed record RecycledRecord(IReadOnlyList<Pidl> BinItems, IReadOnlyList<string> OriginalPaths, string Label) : UndoRecord(Label)
 {
-    public override Task<UndoRecord?> RevertAsync(IntPtr owner)
+    public override async Task<UndoRecord?> RevertAsync(IntPtr owner)
     {
+        var items = await StaWorkerPool.General.Run(() => RecycleBin.BinItemsFor(BinItems));
         // "undelete" is the Recycle Bin's own Restore verb, so its bookkeeping stays right. Runs on the UI (STA) thread.
-        using var menu = ShellContextMenu.ForItems(BinItems, owner, null);
+        using var menu = ShellContextMenu.ForItems(items, owner, null);
         var ok = menu?.InvokeVerb("undelete", owner) == true;
-        return Task.FromResult<UndoRecord?>(ok ? new CreatedRecord(OriginalPaths, Label) : null);
+        return ok ? new CreatedRecord(OriginalPaths, Label) : null;
+    }
+}
+
+// steps in the order they were done; undone last to first
+public sealed record CompositeRecord(IReadOnlyList<UndoRecord> Steps, string Label) : UndoRecord(Label)
+{
+    public override async Task<UndoRecord?> RevertAsync(IntPtr owner)
+    {
+        var inverse = new List<UndoRecord>();
+        for (var i = Steps.Count - 1; i >= 0; i--)
+            if (await Steps[i].RevertAsync(owner) is { } back) inverse.Add(back);
+        return inverse.Count == 0 ? null : new CompositeRecord(inverse, Label);
     }
 }
 
@@ -64,7 +77,10 @@ public sealed record BatchRenameRecord(IReadOnlyList<(string Current, string Pre
     {
         var result = await BatchRename.ApplyAsync(Items.Select(i => (i.Current, i.PreviousName)).ToList(), owner);
         foreach (var (now, oldName) in result.Renamed)
+        {
             Stars.Rename(Path.Combine(Path.GetDirectoryName(now) ?? "", oldName), now);
+            Tags.Rename(Path.Combine(Path.GetDirectoryName(now) ?? "", oldName), now);
+        }
         return result.Renamed.Count == 0 ? null : new BatchRenameRecord(result.Renamed);
     }
 }

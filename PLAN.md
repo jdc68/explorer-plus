@@ -185,7 +185,7 @@ Findings worth keeping:
 
 **Not yet tried by hand:** Quick Look with real photos, videos and Office files, its window on a second monitor, batch rename across search results (items in several folders), the palette with the mouse.
 
-**M6: power features, second part (in progress; dual pane, the transfer queue and instant search are done, parts need hands-on testing, see below).**
+**M6: power features, second part (done).**
 - Dual pane, per tab: `Ctrl+\` (the command bar button, View ▸ Dual pane, the palette) splits the current tab, and the right pane starts in the same folder. Each pane has its own history, layout, columns, sort and selection; the tab strip shows a split marker, and a split tab moves to another window whole. The active pane has an accent line along its top, and the address bar, search box, status bar, sidebar and preview pane follow it. `Tab` switches panes, as in two-pane file managers. `Alt+F5` copies and `Alt+F6` moves the selection into the other pane's folder (also on the item menu and in the palette), and "Open in other pane" opens a folder there. Drags between the panes work like any drag.
 - Transfer queue: paste, drags that start in Explorer+ (between panes, windows, tabs and the sidebar) and copies to the other pane run one at a time, app-wide. Each still uses `IFileOperation` with Windows' own progress, conflict and elevation dialogs, and each is one undo step. A status-bar button shows "1 transfer running, 2 queued"; queued jobs can be started now or cancelled. Settings ▸ Files and folders ▸ "Queue copies and moves" (on by default) turns the queue off. Drops from other apps are left to the shell's drop target as before, because some sources (archivers, browsers) delete the files they offered as soon as the drop returns. For a queued move drop, the source is told nothing happened (`DROPEFFECT_NONE`), so it never deletes anything itself.
 
@@ -199,19 +199,33 @@ Verified on a dev build in an isolated profile, driven with real key and mouse i
 
 **Not yet tried by hand:** the transfers button's menu (Start now, Cancel), drags between two windows and onto the sidebar or a tab, right-drags (they stay with the shell and show its menu), the column menu and header drags in the right pane, grouping and view changes in each pane, Quick Look and the preview pane while switching panes.
 
-**M6, still to do:**
-- Instant folder sizes from the index service (needs the file sizes, which `FSCTL_ENUM_USN_DATA` doesn't give: raw MFT record parsing).
-- A "search all drives" command (the palette, a shortcut), and size or date columns straight from the index.
-- Workspaces, folder compare & sync, Git status column, tags, duplicate finder.
-- SFTP/WebDAV/S3 locations; plugin API.
+**M6, finished (13 Nov 2026).** SFTP/WebDAV/S3 locations and the plugin API moved to M7 (decided with the user).
+- Instant folder sizes from the index. After the name scan, the service reads each volume's `$MFT` itself (`MftReader`: record 0's data runs, update-sequence fixups, the unnamed `$DATA` size and the `$STANDARD_INFORMATION` modified time, credited to the base record), at background I/O priority: C:\ 6 s, D:\ 16 s, E:\ 42 s on this machine. Every folder holds the total of everything below it, kept right as the USN journal reports changes (files whose data or times changed are reopened by file id for their new size). The app asks for all visible folders in one request (protocol v2, `FolderSizesRequest`, at most 10,000 paths) and only measures what the index can't answer (network, FAT, removable). Checked against a real walk to the byte on `C:\Program Files\dotnet` and Documents. A file with several hard links counts once, in the folder of the name the journal reports, so totals for folders with hard links can differ from a walk (on this machine `D:\Windows`, msys64 and the installer output folder).
+- Search hits carry size and modified time from the index, so results show them without touching the disk. "Search all drives" (`Ctrl+Shift+F`, the palette) opens a This PC search.
+- Workspaces (More ▸ Workspaces, the palette): save the tabs of a window, with their right panes, under a name; opening one restores them in a new window. Saving under an existing name updates it.
+- Git status column (category "Explorer+" in the column picker): `git status --porcelain=v1 -z --ignored=matching` once per repository, cached for 3 s and dropped on any change notification. Files show Modified, Staged, Added, Renamed, Deleted, Untracked, Ignored or Conflict; folders show the most pressing state inside them. Nothing shows outside a repository or without git on PATH.
+- Tags: tag files and folders from the item menu (Tags ▸), More ▸ Tags or the palette ("Tag selected items…", "Tag selected items: X"). Tags live in settings, follow renames made in Explorer+ (including a folder's contents), show in a Tags column, and get a sidebar section; a tag opens a view of its items (`explorerplus-tag:` URLs). Deleting a tag never touches the items. The shell's own "Tags" (`System.Keywords`) column is now called Keywords.
+- Duplicate finder (More, the palette; the selected folder or the current one): files are grouped by size, then by a SHA-256 of their first 64 KB, then of the whole file. Hard links to one file count once, junctions aren't followed, and cloud placeholders are skipped so nothing gets downloaded. Results stream into a tab grouped by set (biggest files first), with "N files in M sets · X in extra copies" in the status bar. Deleting a copy removes it from the view, and a set with one file left goes away.
+- Folder compare & sync (More, the palette): the two panes, or the current folder and a selected one, or any two folders. Shows what is only on one side, newer on one side, or different (same date, different size; "Compare contents" also reads files of equal size). Sync left to right, right to left (optionally removing what is only in the target) or both ways (newer wins, clashes left alone). It runs as one `IFileOperation`: what gets replaced or removed goes to the Recycle Bin first, then each copy lands in its folder; one `Ctrl+Z` undoes it all, `Ctrl+Y` redoes it.
+
+Fixed along the way:
+- Settings were never saved on a fresh profile: the window position starts as `NaN`, which `System.Text.Json` refuses to write, so every save failed silently until the first window closed. Named floating-point values are now allowed.
+- Undo of a delete never restored anything: the shell reports a recycled item as its `$R…` file on disk, which has no Restore verb. Undo now looks up the Recycle Bin's own item for it (`RecycleBin.BinItemsFor`).
+- A window opening straight into an icon view could stay blank: the items arrived before the wrap panel was told, and nothing measured it again. The panel now watches its owner's items and measures again once loaded.
+
+Verified on a dev build in an isolated profile, driven with real mouse and key input: instant folder sizes on C:\, E:\ and Program Files, `Ctrl+Shift+F` results with size, date and location, saving, updating and opening a workspace with both panes, the Git status column in this repository, tagging from the item menu and More ▸ Tags ▸ New tag, the sidebar tag view and untagging from it, finding duplicates and deleting copies from the results, comparing two folders, a left-to-right and a both-ways sync, and their undo and redo. Covered by tests: MFT record parsing, folder totals following changes, the v2 protocol, git status parsing and folder roll-up, the duplicate finder, compare states, sync plans, a sync through the real shell, and restoring a recycled file. **Not yet tried by hand:** the index sizes after a service restart on a busy disk, tags on network paths, a duplicate search over a whole drive, sync with elevation prompts or locked files, a workspace with many tabs on a second monitor.
+
+**M7: remote locations and plugins (next).**
+- SFTP, WebDAV and S3 as locations in the sidebar and address bar, listed and browsed like folders, with copy, move and delete going through the same queue.
+- A plugin API: columns, preview handlers, item menu commands and locations from separate assemblies.
 
 ## 7. Architecture
 
 ```
 src/ExplorerPlus.Interop   hand-written P/Invoke + [ComImport] shell interfaces (IShellItem2, IShellFolder,
                            IContextMenu2/3, IFileOperation, IShellLinkW …)
-src/ExplorerPlus.Indexing  no WPF, no shell: VolumeIndex (flat per-record arrays, parallel search), IndexQuery, VolumeReader
-                           (MFT enumeration + USN journal), IndexHost (volumes, impersonated search), IndexProtocol, IndexClient
+src/ExplorerPlus.Indexing  no WPF, no shell: VolumeIndex (flat per-record arrays, parallel search, folder totals), IndexQuery,
+                           VolumeReader (MFT enumeration + USN journal), MftReader (raw $MFT sizes and times), IndexHost (volumes, impersonated search), IndexProtocol, IndexClient
 src/ExplorerPlus.IndexService  LocalSystem Windows service (raw advapi32, no NuGet): ServiceRunner, PipeServer, ServiceInstaller
 src/ExplorerPlus.Core      no WPF: Pidl, ShellLocation, FolderEntry, FastFolderEnumerator, ShellFolderEnumerator,
                            FolderLoader (streaming), StaWorkerPool, ShellInfoCache, FileOperations, ShellContextMenu,
@@ -220,18 +234,21 @@ src/ExplorerPlus.Core      no WPF: Pidl, ShellLocation, FolderEntry, FastFolderE
                            M3: HomeFeed, SearchLocation, ShellNewTemplates, Archives, RecycleBin, NetworkDrives
                            M4: Integration/DefaultFileManager
                            M5: BatchRename, SizeFormat, Navigation/FuzzyMatch
-                           M6: IndexSearch (instant-search location and loader)
+                           M6: IndexSearch (instant-search location and loader), GitStatus, TagView, DuplicateFinder,
+                               FolderCompare (compare and sync plans)
 src/ExplorerPlus.App       WPF, .NET 9 Fluent theme: MainWindow (+ .DragDrop, .Columns), AddressBar, Themes/FileList.xaml,
                            MainViewModel / TabViewModel / SidebarViewModel / PaneViewModel, VirtualizingWrapPanel,
                            PreviewHost, IconCache, ThumbnailService, FolderViewStore, UndoService, ShellChangeWatcher,
                            SingleInstance, AppSettings (%AppData%\ExplorerPlus\settings.json), Stars, QuickAccess
                            M4: MainWindow.Tabs (tab drag, title bar), SettingsWindow / SettingsViewModel, JumpLists
                            M5: MainWindow.Commands (palette, Quick Look, batch rename), QuickLookWindow, BatchRenameWindow
-                           M6: MainWindow.Panes (dual pane, transfers button), TransferQueue, IndexServiceSetup
+                           M6: MainWindow.Panes (dual pane, transfers button), TransferQueue, IndexServiceSetup,
+                               Workspaces, Tags, PromptWindow, CompareWindow
 installer/                 WiX 5 per-user MSI (Package.wxs), build.ps1, winget manifest templates
 tests/ExplorerPlus.Core.Tests   xUnit: enumerator parity, PathParser, command line, drives, file operations,
                            archives, Home, search, templates, default file manager registration,
-                           batch rename, size format, fuzzy match, thumbnail alpha, instant-search index
+                           batch rename, size format, fuzzy match, thumbnail alpha, instant-search index, MFT records,
+                           git status, duplicates, folder compare and sync, Recycle Bin restore
 ```
 
 Why WPF on .NET 9:

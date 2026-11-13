@@ -11,6 +11,46 @@ public static class RecycleBin
         return SHQueryRecycleBinW(null, ref info) == 0 ? (info.i64NumItems, info.i64Size) : (0, 0);
     }
 
+    // A delete reports what it recycled as the $R… file on disk, but Restore is only on the Recycle Bin's own item
+    // for it, so look that up. Must run on an STA thread
+    public static List<Pidl> BinItemsFor(IReadOnlyList<Pidl> recycled)
+    {
+        var byName = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < recycled.Count; i++)
+        {
+            using var n = recycled[i].ToNative();
+            if (ShellNative.GetName(n.Ptr, Interop.SIGDN.DESKTOPABSOLUTEPARSING) is { } name) byName.TryAdd(name, i);
+        }
+        var found = new Pidl?[recycled.Count];
+        if (byName.Count > 0 && ShellNative.TryParse(ShellLocation.Known.RecycleBin) is { } bin)
+        {
+            var folder = ShellNative.BindToFolder(bin);
+            Interop.IEnumIDList? items = null;
+            try
+            {
+                using var binNative = bin.ToNative();
+                if (folder.EnumObjects(IntPtr.Zero, Interop.SHCONTF.FOLDERS | Interop.SHCONTF.NONFOLDERS | Interop.SHCONTF.INCLUDEHIDDEN, out items) >= 0 && items is not null)
+                    while (byName.Count > 0 && items.Next(1, out var child, out var fetched) == 0 && fetched == 1)
+                    {
+                        var abs = Interop.Shell32.ILCombine(binNative.Ptr, child);
+                        Marshal.FreeCoTaskMem(child);
+                        try
+                        {
+                            if (ShellNative.GetName(abs, Interop.SIGDN.DESKTOPABSOLUTEPARSING) is { } name && byName.Remove(name, out var index))
+                                found[index] = Pidl.FromNative(abs);
+                        }
+                        finally { Interop.Shell32.ILFree(abs); }
+                    }
+            }
+            finally
+            {
+                ShellNative.Release(items);
+                ShellNative.Release(folder);
+            }
+        }
+        return recycled.Select((p, i) => found[i] ?? p).ToList();
+    }
+
     /// <summary>Empties every drive's Recycle Bin with the shell's own confirmation, progress and sound.</summary>
     public static bool Empty(IntPtr owner) => SHEmptyRecycleBinW(owner, null, 0) == 0;
 

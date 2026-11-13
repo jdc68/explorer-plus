@@ -31,6 +31,16 @@ public sealed class ShellLocation
     public IndexSearchInfo? IndexResults { get; init; }
 
     public bool IsIndexSearch => IndexResults is not null;
+
+    // the items tagged with this (Explorer+ tags), for a tag's own location
+    public string? Tag { get; init; }
+
+    public bool IsTagView => Tag is not null;
+
+    // the folder whose duplicate files this lists
+    public string? DuplicatesIn { get; init; }
+
+    public bool IsDuplicates => DuplicatesIn is not null;
     public bool IsHome => Is(Known.Home);
     public bool IsRecycleBin => Is(Known.RecycleBin);
     public bool IsNetwork => Is(Known.Network);
@@ -93,6 +103,8 @@ public sealed class ShellLocation
             if (string.Equals(parsingName, Known.Home, StringComparison.OrdinalIgnoreCase)) return CreateHome();
             if (SearchLocation.IsSearchUrl(parsingName)) return SearchLocation.FromUrl(parsingName);
             if (IndexSearch.IsUrl(parsingName)) return IndexSearch.FromUrl(parsingName);
+            if (TagView.IsUrl(parsingName)) return TagView.FromUrl(parsingName);
+            if (DuplicateFinder.IsUrl(parsingName)) return DuplicateFinder.FromUrl(parsingName);
             var pidl = ShellNative.TryParse(parsingName);
             if (pidl is null) return null;
             var loc = FromPidl(pidl);
