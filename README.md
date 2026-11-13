@@ -6,13 +6,15 @@ Requires Windows 10 2004 or later (made for Windows 11) and the [.NET 9 Desktop 
 
 ## Install
 
-There is no published release yet. Build the installer yourself:
+Download the MSI from the [latest release](https://github.com/jdc68/explorer-plus/releases/latest) and run it. It installs to `%LocalAppData%\Programs\Explorer+` without admin rights, adds a Start menu shortcut, and needs the [.NET 9 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/9.0). Installing a newer MSI upgrades the old copy. Uninstall it from Settings ▸ Apps.
+
+To build the installer yourself:
 
 ```powershell
 powershell -File installer/build.ps1
 ```
 
-That writes a per-user MSI to `artifacts/installer`. It installs to `%LocalAppData%\Programs\Explorer+` without admin rights and adds a Start menu shortcut. Uninstall it from Settings ▸ Apps.
+That writes the MSI to `artifacts/installer`. `-Release` also publishes it as a GitHub release (it asks first).
 
 To run from source instead: `dotnet run --project src/ExplorerPlus.App`.
 

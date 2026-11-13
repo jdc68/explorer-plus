@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Explorer+ is a Windows 11 File Explorer replacement (WPF on .NET 9, Windows only). [PLAN.md](PLAN.md) is the source of truth for goals, decisions agreed with the user, milestone status (M1 to M6 done; next are the steps I2 to I10 built from the GitHub issues (I1 is done); M7, remote locations and plugins, is postponed) and the performance budget. Read it before adding features. Its section 5 lists choices that must not be undone (no OneDrive integration, drives deduplicated by volume GUID, hidden context-menu entries, content-aware views).
+Explorer+ is a Windows 11 File Explorer replacement (WPF on .NET 9, Windows only). [PLAN.md](PLAN.md) is the source of truth for goals, decisions agreed with the user, milestone status (M1 to M6 done; next are the steps I2 to I14 built from the GitHub issues (I1 is done); M7, remote locations and plugins, is postponed) and the performance budget. Read it before adding features. Its section 5 lists choices that must not be undone (no OneDrive integration, drives deduplicated by volume GUID, hidden context-menu entries, content-aware views).
 
 ## Commands
 
@@ -32,6 +32,7 @@ powershell -File installer/build.ps1
 
 - `installer/build.ps1` publishes a framework-dependent ReadyToRun build to `artifacts/publish/<arch>`, builds the per-user MSI (WiX 5 from NuGet, not part of the solution) into `artifacts/installer`, and writes winget manifests to `artifacts/winget/<version>`. Pass `-InstallerUrl` with the MSI's public URL before submitting the manifests.
 - Without `-Version`, `build.ps1` bumps the patch version (above both `Directory.Build.props` and the installed copy) and writes it back to `Directory.Build.props`. `-Install` then installs the MSI and fails unless exactly one Explorer+ is installed, at that version, with the files just published.
+- `-Release` publishes the build as a public GitHub release (#13): on a clean working tree it shows the version and notes (`-Notes` text, then the commit subjects since the last `v*` tag) and asks, then commits the version bump as "Release <version>", pushes the branch, tags and pushes `v<version>`, and runs `gh release create` with the MSI; the winget manifests get the asset URL. Releases are public, so only on the user's request, and pass `-Yes` only after they said yes in chat. Windows PowerShell turns redirected native stderr into terminating errors under `$ErrorActionPreference = "Stop"`, so the script leaves git's and gh's stderr unredirected.
 - **After every change to the app, finish with `powershell -File installer/build.ps1 -Install -NoStart`** so the installed copy is the latest build. It quits the running Explorer+ to replace its files. `-NoStart` keeps the MSI from starting Explorer+ again from inside the Claude app's sandbox (see the MSIX note below); tell the user it starts again from the Start menu or at the next sign-in.
 
 - The tests use the real shell (`IFileOperation`, PIDLs, STA threads) on real temp folders, so they need an interactive Windows session.
