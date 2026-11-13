@@ -16,7 +16,7 @@ public static class ShellClipboard
     public static extern int OleFlushClipboard();
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    private static extern ushort RegisterClipboardFormatW(string lpszFormat);
+    internal static extern ushort RegisterClipboardFormatW(string lpszFormat);
 
     public static bool SetItems(IReadOnlyList<Pidl> items, bool cut, IntPtr hwnd)
     {

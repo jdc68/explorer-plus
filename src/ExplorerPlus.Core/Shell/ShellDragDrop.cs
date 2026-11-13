@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using ExplorerPlus.Interop;
+using ComTypes = System.Runtime.InteropServices.ComTypes;
 
 namespace ExplorerPlus.Core.Shell;
 
@@ -20,6 +21,40 @@ public static class ShellDragDrop
             return effect;
         }
         finally { Marshal.Release(data); }
+    }
+
+    // so our "Move to …" label doesn't follow the pointer into an app that sets none
+    public static void ClearDropDescription(IntPtr dataObject)
+    {
+        if (dataObject == IntPtr.Zero) return;
+        object? obj = null;
+        var hglobal = IntPtr.Zero;
+        try
+        {
+            obj = Marshal.GetObjectForIUnknown(dataObject);
+            if (obj is not ComTypes.IDataObject data) return;
+            var format = new ComTypes.FORMATETC
+            {
+                cfFormat = (short)ShellClipboard.RegisterClipboardFormatW("DropDescription"),
+                dwAspect = ComTypes.DVASPECT.DVASPECT_CONTENT,
+                lindex = -1,
+                tymed = ComTypes.TYMED.TYMED_HGLOBAL,
+            };
+            // DROPDESCRIPTION: an image type (DROPIMAGE_INVALID) and two MAX_PATH strings
+            const int size = 4 + 2 * 260 * 2;
+            hglobal = Marshal.AllocHGlobal(size);
+            for (var i = 0; i < size; i += 4) Marshal.WriteInt32(hglobal, i, 0);
+            Marshal.WriteInt32(hglobal, -1);
+            var medium = new ComTypes.STGMEDIUM { tymed = ComTypes.TYMED.TYMED_HGLOBAL, unionmember = hglobal };
+            data.SetData(ref format, ref medium, true);
+            hglobal = IntPtr.Zero;
+        }
+        catch (Exception ex) when (ex is COMException or NotImplementedException or InvalidCastException) { }
+        finally
+        {
+            if (hglobal != IntPtr.Zero) Marshal.FreeHGlobal(hglobal);
+            if (obj is not null && Marshal.IsComObject(obj)) Marshal.ReleaseComObject(obj);
+        }
     }
 
     [DllImport("shell32.dll")]

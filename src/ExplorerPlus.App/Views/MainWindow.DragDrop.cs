@@ -63,6 +63,8 @@ public partial class MainWindow
         {
             _dragging = null;
             _internalDragPaths = null;
+            // the drag is over, so no window may still hold a drag image or a hovered target
+            foreach (var window in App.MainWindows) window.EndDragHere(false);
         }
     }
 
@@ -245,13 +247,31 @@ public partial class MainWindow
         if (item is not null) item.IsDropTarget = true;
     }
 
-    /// <summary>WPF raises DragLeave whenever the pointer crosses child elements; only a real exit from the window ends the drag here.</summary>
+    private const DragDropKeyStates MouseButtons =
+        DragDropKeyStates.LeftMouseButton | DragDropKeyStates.RightMouseButton | DragDropKeyStates.MiddleMouseButton;
+
     private void OnWindowDragLeave(object sender, DragEventArgs e)
     {
-        var p = e.GetPosition(this);
-        if (p.X >= 0 && p.Y >= 0 && p.X < ActualWidth && p.Y < ActualHeight) return;
+        // WPF also raises it between child elements (button down, pointer still here), and the real leave reports a point inside the window too
+        if ((e.KeyStates & MouseButtons) != 0 && IsPointerOverWindow()) return;
+        EndDragHere(true);
+    }
+
+    private bool IsPointerOverWindow()
+    {
+        var under = User32.WindowFromPoint(CursorPoint());
+        return under != IntPtr.Zero && User32.GetAncestor(under, User32.GA_ROOT) == _hwnd;
+    }
+
+    private void EndDragHere(bool clearDescription)
+    {
         EndDropSession();
-        if (_helperEntered) { _dropHelper?.DragLeave(); _helperEntered = false; }
+        if (_helperEntered)
+        {
+            try { _dropHelper?.DragLeave(); } catch { }
+            _helperEntered = false;
+        }
+        if (clearDescription) ShellDragDrop.ClearDropDescription(_dropData);
         ReleaseDragData();
     }
 
