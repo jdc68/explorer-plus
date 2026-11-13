@@ -36,6 +36,7 @@ public partial class MainWindow
 
         public Action<IReadOnlyList<ItemViewModel>> SelectionRequested { get; set; } = _ => { };
         public Action ScrollToTopRequested { get; set; } = () => { };
+        public Action<double> ScrollToOffsetRequested { get; set; } = _ => { };
         public Action<ItemViewModel> RenameRequested { get; set; } = _ => { };
         public PropertyChangedEventHandler TabChanged { get; set; } = (_, _) => { };
     }
@@ -62,6 +63,7 @@ public partial class MainWindow
         var pane = new FilePane(list, marquee, host, right) { DetailsView = (GridView)FindResource("DetailsGridView") };
         pane.SelectionRequested = items => SelectItems(pane, items, scroll: true);
         pane.ScrollToTopRequested = () => ScrollToTop(pane);
+        pane.ScrollToOffsetRequested = offset => Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => ScrollViewerOf(pane.List)?.ScrollToVerticalOffset(offset));
         pane.RenameRequested = item => BeginRename(pane, item);
         pane.TabChanged = (s, e) => OnPaneTabPropertyChanged(pane, s, e);
         list.View = pane.DetailsView;
@@ -82,6 +84,8 @@ public partial class MainWindow
         {
             old.SelectionRequested -= pane.SelectionRequested;
             old.ScrollToTopRequested -= pane.ScrollToTopRequested;
+            old.ScrollToOffsetRequested -= pane.ScrollToOffsetRequested;
+            old.ReadScrollOffset = null;
             old.RenameRequested -= pane.RenameRequested;
             old.PropertyChanged -= pane.TabChanged;
             old.SavedScrollOffset = ScrollViewerOf(pane.List)?.VerticalOffset ?? 0;
@@ -100,6 +104,8 @@ public partial class MainWindow
 
         tab.SelectionRequested += pane.SelectionRequested;
         tab.ScrollToTopRequested += pane.ScrollToTopRequested;
+        tab.ScrollToOffsetRequested += pane.ScrollToOffsetRequested;
+        tab.ReadScrollOffset = () => ScrollViewerOf(pane.List)?.VerticalOffset ?? 0;
         tab.RenameRequested += pane.RenameRequested;
         tab.PropertyChanged += pane.TabChanged;
         RebuildColumns(pane, tab);

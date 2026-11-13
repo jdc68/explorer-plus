@@ -418,7 +418,7 @@
             <Grid Grid.Column="2" Margin="6,0,0,0">
                 <TextBox x:Name="FilterBox" AutomationProperties.Name="Filter or search this folder" Text="{Binding SelectedTab.FilterText, UpdateSourceTrigger=PropertyChanged}"
                          VerticalContentAlignment="Center" Padding="30,0,8,0" MinHeight="32" PreviewKeyDown="OnFilterKeyDown"
-                         ToolTip="Type to filter this folder. Press Enter to search it and its subfolders: instantly by name when the index service is installed (Settings ▸ Instant search), otherwise, and for kind:, date:, size: …, with Windows Search." />
+                         ToolTip="Type to filter this folder; pause and it searches it and its subfolders: instantly by name when the index service is installed (Settings ▸ Instant search), otherwise, and for kind:, date:, size: …, with Windows Search from three letters. Esc returns to the folder, Enter keeps the results." />
                 <TextBlock Text="&#xE721;" FontFamily="{StaticResource IconFont}" Margin="10,0,0,0" VerticalAlignment="Center"
                            IsHitTestVisible="False" Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
                 <TextBlock Text="{Binding SelectedTab.SearchPlaceholder}" Margin="31,0,8,0" VerticalAlignment="Center"

@@ -416,7 +416,7 @@ public partial class MainWindow : Window
         }
         else if (e.Key == Key.Enter && FilterBox.Text.Trim() is { Length: > 0 } query && Tab is { CanSearch: true })
         {
-            // Typing filters what's listed; Enter searches the folder and everything below it.
+            // Typing filters, then searches once it pauses; Enter searches at once and keeps the results in the history
             e.Handled = true;
             if (await ViewModel.SearchAsync(query)) FocusList();
         }

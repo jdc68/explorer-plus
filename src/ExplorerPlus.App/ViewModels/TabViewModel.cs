@@ -91,6 +91,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
             OnPropertyChanged(nameof(IsRecycleBin));
             OnPropertyChanged(nameof(IsSearch));
             OnPropertyChanged(nameof(IsLiveSearch));
+            OnPropertyChanged(nameof(IsTypedSearch));
             OnPropertyChanged(nameof(ShowNetworkActions));
             OnPropertyChanged(nameof(CanSearch));
             OnPropertyChanged(nameof(EmptyMessage));
@@ -136,7 +137,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
     private bool IsCollection => Kind is LocationKind.Home or LocationKind.Search or LocationKind.RecycleBin;
     public ImageSource? Icon => IconCache.Get(_iconIndex);
 
-    public bool CanGoBack => _back.Count > 0;
+    public bool CanGoBack => _back.Count > 0 || _typedFrom is not null;
     public bool CanGoForward => _forward.Count > 0;
     public bool CanGoUp => _location is { Pidl.IsDesktop: false };
 
@@ -157,8 +158,13 @@ public sealed class TabViewModel : ObservableObject, IDisposable
 
     public bool ShowEmptyMessage => !_isLoading && _error is null && Items.Count == 0;
 
-    /// <summary>Instant-search results: the search box holds the query rather than a filter.</summary>
-    public bool IsLiveSearch => _location?.IsIndexSearch == true;
+    /// <summary>
+    /// Instant-search results, or results opened by typing: the search box holds the query rather than a filter.
+    /// </summary>
+    public bool IsLiveSearch => _location?.IsIndexSearch == true || _typedFrom is not null;
+
+    /// <summary>Results opened by typing in a folder's search box; Esc or clearing the box returns to that folder.</summary>
+    public bool IsTypedSearch => _typedFrom is not null;
 
     /// <summary>What the list is filtered by (nothing on instant-search results, whose box holds the query).</summary>
     private string ListFilter => IsLiveSearch ? "" : _filterText;
@@ -186,12 +192,24 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         get => _filterText;
         set
         {
+            var wasEmpty = _filterText.Length == 0;
             if (!Set(ref _filterText, value ?? "")) return;
             OnPropertyChanged(nameof(EmptyMessage));
-            if (IsLiveSearch) ScheduleRequery();
-            else _ = ApplyViewAsync(keepSelection: true);
+            if (!IsLiveSearch)
+            {
+                // Where the folder was before its first letter filtered it, for coming back from typed results
+                if (wasEmpty && _location is not null) CaptureTypedFrom();
+                _ = ApplyViewAsync(keepSelection: true);
+            }
+            ScheduleTypedSearch();
         }
     }
+
+    /// <summary>Asks the pane showing this tab how far its list is scrolled.</summary>
+    public Func<double>? ReadScrollOffset { get; set; }
+
+    /// <summary>Raised to put the list back at a scroll offset (after leaving typed results).</summary>
+    public event Action<double>? ScrollToOffsetRequested;
 
     public ViewMode ViewMode => _viewMode;
 
@@ -236,8 +254,11 @@ public sealed class TabViewModel : ObservableObject, IDisposable
     /// <summary>Replace: show another location in place of this one, without a history step (instant search while typing).</summary>
     public enum NavMode { New, Back, Forward, Refresh, Replace }
 
-    public async Task NavigateAsync(ShellLocation location, NavMode mode = NavMode.New, string? selectPath = null)
+    public async Task NavigateAsync(ShellLocation location, NavMode mode = NavMode.New, string? selectPath = null,
+        HashSet<string>? selectNames = null)
     {
+        if (mode != NavMode.Replace) _requeryCts?.Cancel();
+        if (mode == NavMode.New) CommitTypedSearch();
         var previous = _location;
         if (mode == NavMode.New && previous is not null && !previous.IsSameAs(location))
         {
@@ -267,7 +288,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         ApplyRememberedView();
         _ = LoadBreadcrumbAsync(location);
         _ = LoadIconAsync(location);
-        await LoadAsync(clearFirst: true, selectPath: selectPath);
+        await LoadAsync(clearFirst: true, selectPath: selectPath, keepNames: selectNames);
     }
 
     private IDisposable? WatchFor(ShellLocation location)
@@ -295,35 +316,120 @@ public sealed class TabViewModel : ObservableObject, IDisposable
     {
         var scope = SearchScope;
         if (string.IsNullOrWhiteSpace(query) || !SearchLocation.CanSearch(scope)) return false;
-        if (IsLiveSearch && string.Equals(query.Trim(), _location!.SearchQuery, StringComparison.Ordinal)) return true;
+        query = query.Trim();
+        _requeryCts?.Cancel();
+        // Enter on typed results keeps them: they become a step in the history, and Back returns to the folder
+        var replace = IsLiveSearch;
+        if (IsTypedSearch) { CommitTypedSearch(); _forward.Clear(); OnPropertyChanged(nameof(CanGoForward)); }
+        if (replace && string.Equals(query, _location!.SearchQuery, StringComparison.Ordinal)) return true;
         if (!IndexSearch.IsWindowsSearchQuery(query) && await IndexSearch.CanSearchAsync(scope))
         {
-            await NavigateAsync(IndexSearch.Create(query, scope!), IsLiveSearch ? NavMode.Replace : NavMode.New);
+            await NavigateAsync(IndexSearch.Create(query, scope!), replace ? NavMode.Replace : NavMode.New);
             return true;
         }
         var search = await StaWorkerPool.Enumeration.Run(() => SearchLocation.Create(query, scope!));
         if (search is null) return false;
-        await NavigateAsync(search);
+        if (replace) ClearFilterText();
+        await NavigateAsync(search, replace ? NavMode.Replace : NavMode.New);
         return true;
     }
 
-    private CancellationTokenSource? _requeryCts;
+    private const int MinTypedQuery = 2;
+    private const int MinTypedWindowsQuery = 3;
 
-    /// <summary>Typing on instant-search results: search again once typing pauses.</summary>
-    private async void ScheduleRequery()
+    private CancellationTokenSource? _requeryCts;
+    private ShellLocation? _typedFrom;
+    private HashSet<string>? _typedFromSelection;
+    private double _typedFromScroll;
+
+    private bool CanSearchWhileTyping => Kind != LocationKind.Search && CanSearch;
+
+    /// <summary>
+    /// Typing in the search box: once typing pauses, open results for what was typed (instant search after 300 ms,
+    /// Windows Search after 800 ms and from three letters), or search again on results already open. Going below
+    /// the minimum length, or clearing the box, returns to the folder the typed results came from.
+    /// </summary>
+    private async void ScheduleTypedSearch()
     {
         _requeryCts?.Cancel();
         var cts = _requeryCts = new CancellationTokenSource();
-        try { await Task.Delay(150, cts.Token); }
-        catch (OperationCanceledException) { return; }
         var query = _filterText.Trim();
-        if (_location is not { IsIndexSearch: true, SearchScope: { } scope } || query.Length == 0 || query == _location.SearchQuery) return;
-        if (IndexSearch.IsWindowsSearchQuery(query)) return; // Enter hands it to Windows Search
-        await NavigateAsync(IndexSearch.Create(query, scope), NavMode.Replace);
+        try
+        {
+            if (_location is { IsIndexSearch: true, SearchScope: { } searched } && _typedFrom is null)
+            {
+                // Results opened with Enter or the instant-search tab: typing searches again
+                await Task.Delay(150, cts.Token);
+                if (query.Length == 0 || query == _location?.SearchQuery || IndexSearch.IsWindowsSearchQuery(query)) return;
+                await NavigateAsync(IndexSearch.Create(query, searched), NavMode.Replace);
+                return;
+            }
+            if (_typedFrom is null && !CanSearchWhileTyping) return;
+            var scope = _typedFrom ?? _location!;
+            var windows = IndexSearch.IsWindowsSearchQuery(query) || !await IndexSearch.CanSearchAsync(scope);
+            cts.Token.ThrowIfCancellationRequested();
+            if (query.Length < (windows ? MinTypedWindowsQuery : MinTypedQuery))
+            {
+                if (_typedFrom is not null) await LeaveTypedSearchAsync();
+                return;
+            }
+            await Task.Delay(windows ? 800 : _typedFrom is null ? 300 : 150, cts.Token);
+            if (_typedFrom is not null && query == _location?.SearchQuery) return;
+            var results = windows ? await CreateWindowsSearchAsync(query, scope) : IndexSearch.Create(query, scope);
+            if (results is null || cts.IsCancellationRequested) return;
+            _typedFrom = scope;
+            await NavigateAsync(results, NavMode.Replace);
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private static async Task<ShellLocation?> CreateWindowsSearchAsync(string query, ShellLocation scope)
+    {
+        try { return await StaWorkerPool.Enumeration.Run(() => SearchLocation.Create(query, scope)); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { return null; }
+    }
+
+    private void CaptureTypedFrom()
+    {
+        _typedFromSelection = _selectedItems.Select(i => i.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        _typedFromScroll = ReadScrollOffset?.Invoke() ?? 0;
+    }
+
+    /// <summary>Back to the folder typed results came from, with its selection and scroll position when the box is empty.</summary>
+    private async Task LeaveTypedSearchAsync()
+    {
+        if (_typedFrom is not { } from) return;
+        _typedFrom = null;
+        var restore = _filterText.Length == 0;
+        await NavigateAsync(from, NavMode.Replace, selectNames: restore ? _typedFromSelection : null);
+        if (restore && ReferenceEquals(_location, from)) ScrollToOffsetRequested?.Invoke(_typedFromScroll);
+    }
+
+    /// <summary>Typed results become an ordinary history step (Enter, or leaving them for another place).</summary>
+    private void CommitTypedSearch()
+    {
+        if (_typedFrom is not { } from) return;
+        _requeryCts?.Cancel();
+        _typedFrom = null;
+        _back.Add(from);
+        // On Windows Search results the box filters them, so the query leaves it
+        if (_location is { IsIndexSearch: false }) ClearFilterText();
+        OnPropertyChanged(nameof(IsLiveSearch));
+        OnPropertyChanged(nameof(IsTypedSearch));
+        OnPropertyChanged(nameof(SearchPlaceholder));
+        OnPropertyChanged(nameof(EmptyMessage));
+        OnPropertyChanged(nameof(CanGoBack));
+    }
+
+    private void ClearFilterText()
+    {
+        _filterText = "";
+        OnPropertyChanged(nameof(FilterText));
     }
 
     public async Task GoBackAsync()
     {
+        CommitTypedSearch();
         if (_back.Count == 0 || _location is null) return;
         var target = _back[^1];
         _back.RemoveAt(_back.Count - 1);
@@ -333,6 +439,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
 
     public async Task GoForwardAsync()
     {
+        CommitTypedSearch();
         if (_forward.Count == 0 || _location is null) return;
         var target = _forward[^1];
         _forward.RemoveAt(_forward.Count - 1);
@@ -343,6 +450,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
     /// <summary>Jumps to an entry in the back (negative) or forward (positive) history list.</summary>
     public async Task GoToHistoryAsync(ShellLocation target)
     {
+        CommitTypedSearch();
         if (_location is null) return;
         var bi = _back.IndexOf(target);
         if (bi >= 0)
@@ -365,6 +473,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
 
     public async Task GoUpAsync()
     {
+        CommitTypedSearch();
         if (_location is null) return;
         var parent = await _location.GetParentAsync();
         if (parent is null) return;
@@ -411,13 +520,13 @@ public sealed class TabViewModel : ObservableObject, IDisposable
 
     // ---------- Loading ----------
 
-    private async Task LoadAsync(bool clearFirst, string? selectPath = null, bool keepSelection = false)
+    private async Task LoadAsync(bool clearFirst, string? selectPath = null, bool keepSelection = false, HashSet<string>? keepNames = null)
     {
         var location = _location!;
         _loadCts?.Cancel();
         if (clearFirst) { _sizesCts?.Cancel(); _sizesPending.Clear(); }
         var cts = _loadCts = new CancellationTokenSource();
-        var keep = keepSelection ? _selectedItems.Select(i => i.Name).ToHashSet(StringComparer.OrdinalIgnoreCase) : null;
+        var keep = keepNames ?? (keepSelection ? _selectedItems.Select(i => i.Name).ToHashSet(StringComparer.OrdinalIgnoreCase) : null);
 
         IsLoading = true;
         Error = null;
@@ -1146,6 +1255,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         _loadCts?.Cancel();
         _refreshDebounce?.Cancel();
         _sizesCts?.Cancel();
+        _requeryCts?.Cancel();
         FolderSizeWatcher.Changed -= OnFolderSizesInvalidated;
         Stars.Changed -= OnStarsChanged;
         Tags.Changed -= OnTagsChanged;
