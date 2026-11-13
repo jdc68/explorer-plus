@@ -194,8 +194,22 @@ public static class User32
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool IsIconic(IntPtr hWnd);
 
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
+    public static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")]
+    public static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool AddClipboardFormatListener(IntPtr hwnd);
+
     public const int ASFW_ANY = -1;
+    public const int WM_CLIPBOARDUPDATE = 0x031D;
     public const int SW_RESTORE = 9;
+    public const int GWL_STYLE = -16;
+    public const long WS_MAXIMIZEBOX = 0x00010000;
+    public const long WS_MINIMIZEBOX = 0x00020000;
 }
 
 public static class Comctl32

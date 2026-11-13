@@ -179,8 +179,10 @@ public sealed class ItemViewModel : ObservableObject
     public string GroupKey { get; set; } = "";
     public int GroupRank { get; set; }
 
-    /// <summary>Hidden items are drawn faded, as in Explorer.</summary>
-    public double ItemOpacity => _entry.IsHidden ? 0.55 : 1.0;
+    /// <summary>Hidden and cut items are drawn faded, as in Explorer.</summary>
+    public double ItemOpacity => _entry.IsHidden || CutItems.IsCut(_entry.Path) ? 0.55 : 1.0;
+
+    public void RefreshOpacity() => OnPropertyChanged(nameof(ItemOpacity));
 
     public int IconIndex => _iconIndex;
 

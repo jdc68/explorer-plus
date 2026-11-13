@@ -582,12 +582,26 @@ public partial class MainWindow : Window
 
     private void ScrollToTop(FilePane pane)
     {
+        ResetScroll(pane.List);
         // A focused, recycled row would otherwise drag the viewport to wherever its new item landed.
-        ScrollViewerOf(pane.List)?.ScrollToVerticalOffset(0);
         Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
         {
-            if (pane.List.SelectedItems.Count == 0) ScrollViewerOf(pane.List)?.ScrollToVerticalOffset(0);
+            if (pane.List.SelectedItems.Count == 0) ResetScroll(pane.List);
         });
+    }
+
+    private static void ResetScroll(ListView list)
+    {
+        if (ScrollViewerOf(list) is not { } sv) return;
+        // Once the old items are cleared the viewer reports 0 and skips its own ScrollToVerticalOffset(0), while
+        // the panel still holds the old offset and goes back to it (clamped) when the new items arrive
+        if (FindDescendant<VirtualizingPanel>(sv) is IScrollInfo panel)
+        {
+            panel.SetVerticalOffset(0);
+            panel.SetHorizontalOffset(0);
+        }
+        sv.ScrollToVerticalOffset(0);
+        sv.ScrollToHorizontalOffset(0);
     }
 
     private void SelectItems(IReadOnlyList<ItemViewModel> items, bool scroll) => SelectItems(_active, items, scroll);

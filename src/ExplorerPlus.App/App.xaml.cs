@@ -84,6 +84,7 @@ public partial class App : Application
 
         _instance.Listen(args => Dispatcher.BeginInvoke(() => HandleCommandLine(args, fromOtherInstance: true)));
         Background.Listen(ExitAll);
+        CutItems.Start();
         HandleCommandLine(e.Args, fromOtherInstance: false);
         JumpLists.Schedule();
         Task.Run(Background.SyncStartupEntry); // keeps the sign-in entry pointing at this copy

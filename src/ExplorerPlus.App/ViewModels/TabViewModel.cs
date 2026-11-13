@@ -55,6 +55,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         FolderSizeWatcher.Changed += OnFolderSizesInvalidated;
         Stars.Changed += OnStarsChanged;
         Tags.Changed += OnTagsChanged;
+        CutItems.Changed += OnCutChanged;
     }
 
     public RangeObservableCollection<ItemViewModel> Items { get; } = new();
@@ -422,6 +423,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         _dirtyDuringLoad = false;
         if (clearFirst)
         {
+            ScrollToTopRequested?.Invoke();
             SetAll([]);
             Items.ReplaceAll([]);
             SelectedItems = [];
@@ -902,6 +904,12 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         foreach (var item in _all) item.ForgetCustomColumns();
     }
 
+    private void OnCutChanged(IReadOnlySet<string> paths)
+    {
+        foreach (var i in _all)
+            if (i.Entry.Path is { } p && paths.Contains(p.Length > 3 ? p.TrimEnd('\\') : p)) i.RefreshOpacity();
+    }
+
     private void OnStarsChanged()
     {
         foreach (var i in _all) i.RefreshStar();
@@ -1054,6 +1062,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         FolderSizeWatcher.Changed -= OnFolderSizesInvalidated;
         Stars.Changed -= OnStarsChanged;
         Tags.Changed -= OnTagsChanged;
+        CutItems.Changed -= OnCutChanged;
         _watch?.Dispose();
         _partner?.Dispose();
     }
