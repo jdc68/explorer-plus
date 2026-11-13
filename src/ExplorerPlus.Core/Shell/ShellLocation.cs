@@ -26,6 +26,11 @@ public sealed class ShellLocation
     public string? SearchQuery { get; init; }
 
     public bool IsSearch => SearchQuery is not null;
+
+    /// <summary>Instant-search results only (from the index service rather than Windows Search): what the last load found.</summary>
+    public IndexSearchInfo? IndexResults { get; init; }
+
+    public bool IsIndexSearch => IndexResults is not null;
     public bool IsHome => Is(Known.Home);
     public bool IsRecycleBin => Is(Known.RecycleBin);
     public bool IsNetwork => Is(Known.Network);
@@ -87,6 +92,7 @@ public sealed class ShellLocation
         {
             if (string.Equals(parsingName, Known.Home, StringComparison.OrdinalIgnoreCase)) return CreateHome();
             if (SearchLocation.IsSearchUrl(parsingName)) return SearchLocation.FromUrl(parsingName);
+            if (IndexSearch.IsUrl(parsingName)) return IndexSearch.FromUrl(parsingName);
             var pidl = ShellNative.TryParse(parsingName);
             if (pidl is null) return null;
             var loc = FromPidl(pidl);

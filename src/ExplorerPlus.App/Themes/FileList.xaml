@@ -130,6 +130,8 @@
 
     <Style x:Key="IconItemBaseStyle" TargetType="ListViewItem">
         <Setter Property="AutomationProperties.Name" Value="{Binding DisplayName}" />
+        <!-- Full path for UI Automation clients (HoverPreview reads it to preview the hovered file); null for virtual items. -->
+        <Setter Property="AutomationProperties.AutomationId" Value="{Binding Entry.Path}" />
         <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
         <Setter Property="VerticalContentAlignment" Value="Stretch" />
@@ -177,6 +179,8 @@
 
     <Style x:Key="FileRowBaseStyle" TargetType="ListViewItem">
         <Setter Property="AutomationProperties.Name" Value="{Binding DisplayName}" />
+        <!-- Full path for UI Automation clients (HoverPreview reads it to preview the hovered file); null for virtual items. -->
+        <Setter Property="AutomationProperties.AutomationId" Value="{Binding Entry.Path}" />
         <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
         <Setter Property="VerticalContentAlignment" Value="Center" />

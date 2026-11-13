@@ -57,6 +57,18 @@ public sealed record RenameRecord(string CurrentPath, string PreviousName) : Und
     }
 }
 
+/// <summary>A batch rename: where each item is now and its name before. Undo renames them all back.</summary>
+public sealed record BatchRenameRecord(IReadOnlyList<(string Current, string PreviousName)> Items) : UndoRecord("Rename")
+{
+    public override async Task<UndoRecord?> RevertAsync(IntPtr owner)
+    {
+        var result = await BatchRename.ApplyAsync(Items.Select(i => (i.Current, i.PreviousName)).ToList(), owner);
+        foreach (var (now, oldName) in result.Renamed)
+            Stars.Rename(Path.Combine(Path.GetDirectoryName(now) ?? "", oldName), now);
+        return result.Renamed.Count == 0 ? null : new BatchRenameRecord(result.Renamed);
+    }
+}
+
 /// <summary>Items we moved: where each is now and the folder it came from. Undo moves them back.</summary>
 public sealed record MoveRecord(IReadOnlyList<(string Current, string PreviousFolder)> Items) : UndoRecord("Move")
 {

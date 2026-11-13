@@ -228,6 +228,52 @@
                 </TextBlock>
             </Grid>
         </DataTemplate>
+        <GridView x:Key="DetailsGridView" x:Shared="False" AllowsColumnReorder="True">
+            <GridViewColumn Width="360">
+                <GridViewColumn.Header>
+                    <GridViewColumnHeader Tag="Name" Content="Name" HorizontalContentAlignment="Left" Padding="8,0,0,0" />
+                </GridViewColumn.Header>
+                <GridViewColumn.CellTemplate>
+                    <DataTemplate DataType="{x:Type vm:ItemViewModel}">
+                        <DockPanel Opacity="{Binding ItemOpacity}">
+                            <CheckBox DockPanel.Dock="Left" Style="{StaticResource ItemCheckBox}" Margin="0,0,8,0" />
+                            <Image DockPanel.Dock="Left" Source="{Binding Icon}" Width="16" Height="16" Margin="0,0,8,0" />
+                            <TextBlock DockPanel.Dock="Right" Style="{StaticResource StarMark}" />
+                            <Grid>
+                                <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                           Visibility="{Binding IsRenaming, Converter={StaticResource InverseBoolToVis}}" />
+                                <TextBox Text="{Binding EditName, UpdateSourceTrigger=PropertyChanged}" MinHeight="24" Padding="4,0"
+                                         VerticalContentAlignment="Center" Margin="-4,0,0,0"
+                                         Visibility="{Binding IsRenaming, Converter={StaticResource BoolToVis}}"
+                                         IsVisibleChanged="OnRenameBoxVisible" PreviewKeyDown="OnRenameBoxKeyDown"
+                                         LostKeyboardFocus="OnRenameBoxLostFocus" />
+                            </Grid>
+                        </DockPanel>
+                    </DataTemplate>
+                </GridViewColumn.CellTemplate>
+            </GridViewColumn>
+            <GridViewColumn Width="160" DisplayMemberBinding="{Binding ModifiedText}">
+                <GridViewColumn.Header>
+                    <GridViewColumnHeader Tag="Modified" Content="Date modified" HorizontalContentAlignment="Left" Padding="8,0,0,0" />
+                </GridViewColumn.Header>
+            </GridViewColumn>
+            <GridViewColumn Width="170" DisplayMemberBinding="{Binding TypeName}">
+                <GridViewColumn.Header>
+                    <GridViewColumnHeader Tag="Type" Content="Type" HorizontalContentAlignment="Left" Padding="8,0,0,0" />
+                </GridViewColumn.Header>
+            </GridViewColumn>
+            <GridViewColumn Width="110">
+                <GridViewColumn.Header>
+                    <GridViewColumnHeader Tag="Size" Content="Size" HorizontalContentAlignment="Left" Padding="8,0,0,0" />
+                </GridViewColumn.Header>
+                <GridViewColumn.CellTemplate>
+                    <DataTemplate DataType="{x:Type vm:ItemViewModel}">
+                        <TextBlock Text="{Binding SizeText}" HorizontalAlignment="Right" Margin="0,0,8,0" />
+                    </DataTemplate>
+                </GridViewColumn.CellTemplate>
+            </GridViewColumn>
+        </GridView>
+
         <!-- Group header: chevron, name, item count and a divider; click collapses the group. -->
         <Style x:Key="GroupContainerStyle" TargetType="GroupItem">
             <Setter Property="Template">
@@ -289,7 +335,7 @@
             </Grid.ColumnDefinitions>
         <DockPanel Margin="6,6,6,0" LastChildFill="False">
             <ListBox x:Name="TabStrip" DockPanel.Dock="Left" ItemsSource="{Binding Tabs}"
-                     SelectedItem="{Binding SelectedTab, Mode=TwoWay}" ItemContainerStyle="{StaticResource TabItemStyle}"
+                     SelectedItem="{Binding CurrentTab, Mode=TwoWay}" ItemContainerStyle="{StaticResource TabItemStyle}"
                      Background="Transparent" BorderThickness="0" Focusable="False" AutomationProperties.Name="Tabs"
                      WindowChrome.IsHitTestVisibleInChrome="True"
                      AllowDrop="True" DragEnter="OnTabStripDragOver" DragOver="OnTabStripDragOver" Drop="OnTabStripDrop"
@@ -318,6 +364,10 @@
                                     MinWidth="24" MinHeight="24" Padding="4" Margin="4,0,0,0" Click="OnCloseTabClick" ToolTip="Close tab (Ctrl+W)"
                                     AutomationProperties.Name="Close tab" />
                             <Image DockPanel.Dock="Left" Source="{Binding Icon}" Width="16" Height="16" Margin="0,0,8,0" />
+                            <TextBlock DockPanel.Dock="Right" Text="&#xE89A;" FontFamily="{StaticResource IconFont}" FontSize="12" Margin="6,0,0,0"
+                                       VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                       ToolTip="{Binding Partner.Title, StringFormat='Dual pane, right: {0}'}"
+                                       Visibility="{Binding IsSplit, Converter={StaticResource BoolToVis}}" />
                             <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
                         </DockPanel>
                     </DataTemplate>
@@ -348,7 +398,7 @@
             <Grid Grid.Column="2" Margin="6,0,0,0">
                 <TextBox x:Name="FilterBox" AutomationProperties.Name="Filter or search this folder" Text="{Binding SelectedTab.FilterText, UpdateSourceTrigger=PropertyChanged}"
                          VerticalContentAlignment="Center" Padding="30,0,8,0" MinHeight="32" PreviewKeyDown="OnFilterKeyDown"
-                         ToolTip="Type to filter this folder. Press Enter to search it and its subfolders with Windows Search (kind:, date:, size:, ext: …)." />
+                         ToolTip="Type to filter this folder. Press Enter to search it and its subfolders: instantly by name when the index service is installed (Settings ▸ Instant search), otherwise, and for kind:, date:, size: …, with Windows Search." />
                 <TextBlock Text="&#xE721;" FontFamily="{StaticResource IconFont}" Margin="10,0,0,0" VerticalAlignment="Center"
                            IsHitTestVisible="False" Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
                 <TextBlock Text="{Binding SelectedTab.SearchPlaceholder}" Margin="31,0,8,0" VerticalAlignment="Center"
@@ -390,6 +440,9 @@
                         <TextBlock Text="&#xE70D;" FontFamily="{StaticResource IconFont}" FontSize="9" VerticalAlignment="Center" Margin="6,2,0,0" />
                     </StackPanel>
                 </Button>
+                <ToggleButton x:Name="DualPaneButton" Style="{StaticResource StatusToggle}" Content="&#xE89A;" Click="OnDualPaneClick"
+                              ToolTip="Dual pane (Ctrl+\). Tab switches panes, Alt+F5 copies and Alt+F6 moves to the other pane."
+                              AutomationProperties.Name="Dual pane" Margin="2,0" />
                 <Rectangle Width="1" Margin="6,6" Fill="{DynamicResource DividerStrokeColorDefaultBrush}" />
                 <Button Style="{StaticResource CommandButton}" Click="OnTerminalClick" ToolTip="Open a terminal in this folder (Ctrl+Shift+`)" AutomationProperties.Name="Terminal">
                     <StackPanel Orientation="Horizontal">
@@ -499,84 +552,86 @@
                     <ColumnDefinition x:Name="PaneSplitterColumn" Width="0" />
                     <ColumnDefinition x:Name="PaneColumn" Width="0" />
                 </Grid.ColumnDefinitions>
-                <ListView x:Name="FileList" AutomationProperties.Name="Items" ItemsSource="{Binding SelectedTab.Items}" SelectionMode="Extended"
-                          Style="{StaticResource FileListStyle}"
-                          BorderThickness="0" Background="Transparent" ItemContainerStyle="{StaticResource FileRowStyle}"
-                          VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
-                          VirtualizingPanel.IsContainerVirtualizable="True" VirtualizingPanel.CacheLength="1,2"
-                          VirtualizingPanel.CacheLengthUnit="Page" VirtualizingPanel.IsVirtualizingWhenGrouping="True" ScrollViewer.IsDeferredScrollingEnabled="False"
-                          IsTextSearchEnabled="True" TextSearch.TextPath="DisplayName"
-                          SelectionChanged="OnSelectionChanged" ContextMenuOpening="OnFileListContextMenuOpening"
-                          PreviewMouseLeftButtonDown="OnFileListMouseDown" PreviewKeyDown="OnFileListKeyDown"
-                          GridViewColumnHeader.Click="OnColumnHeaderClick" ContextMenu="{x:Null}" PreviewMouseWheel="OnFileListPreviewMouseWheel"
-                          PreviewMouseMove="OnFileListPreviewMouseMove" PreviewMouseUp="OnFileListPreviewMouseUp"
-                          PreviewMouseRightButtonDown="OnFileListPreviewRightButtonDown"
-                          AllowDrop="True" DragEnter="OnFileListDragOver" DragOver="OnFileListDragOver" Drop="OnFileListDrop">
-                    <ListView.View>
-                        <GridView AllowsColumnReorder="True">
-                            <GridViewColumn x:Name="NameColumn" Width="360">
-                                <GridViewColumn.Header>
-                                    <GridViewColumnHeader Tag="Name" Content="Name" HorizontalContentAlignment="Left" Padding="8,0,0,0" />
-                                </GridViewColumn.Header>
-                                <GridViewColumn.CellTemplate>
-                                    <DataTemplate DataType="{x:Type vm:ItemViewModel}">
-                                        <DockPanel Opacity="{Binding ItemOpacity}">
-                                            <CheckBox DockPanel.Dock="Left" Style="{StaticResource ItemCheckBox}" Margin="0,0,8,0" />
-                                            <Image DockPanel.Dock="Left" Source="{Binding Icon}" Width="16" Height="16" Margin="0,0,8,0" />
-                                            <TextBlock DockPanel.Dock="Right" Style="{StaticResource StarMark}" />
-                                            <Grid>
-                                                <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
-                                                           Visibility="{Binding IsRenaming, Converter={StaticResource InverseBoolToVis}}" />
-                                                <TextBox Text="{Binding EditName, UpdateSourceTrigger=PropertyChanged}" MinHeight="24" Padding="4,0"
-                                                         VerticalContentAlignment="Center" Margin="-4,0,0,0"
-                                                         Visibility="{Binding IsRenaming, Converter={StaticResource BoolToVis}}"
-                                                         IsVisibleChanged="OnRenameBoxVisible" PreviewKeyDown="OnRenameBoxKeyDown"
-                                                         LostKeyboardFocus="OnRenameBoxLostFocus" />
-                                            </Grid>
-                                        </DockPanel>
-                                    </DataTemplate>
-                                </GridViewColumn.CellTemplate>
-                            </GridViewColumn>
-                            <GridViewColumn Width="160" DisplayMemberBinding="{Binding ModifiedText}">
-                                <GridViewColumn.Header>
-                                    <GridViewColumnHeader Tag="Modified" Content="Date modified" HorizontalContentAlignment="Left" Padding="8,0,0,0" />
-                                </GridViewColumn.Header>
-                            </GridViewColumn>
-                            <GridViewColumn Width="170" DisplayMemberBinding="{Binding TypeName}">
-                                <GridViewColumn.Header>
-                                    <GridViewColumnHeader Tag="Type" Content="Type" HorizontalContentAlignment="Left" Padding="8,0,0,0" />
-                                </GridViewColumn.Header>
-                            </GridViewColumn>
-                            <GridViewColumn Width="110">
-                                <GridViewColumn.Header>
-                                    <GridViewColumnHeader Tag="Size" Content="Size" HorizontalContentAlignment="Left" Padding="8,0,0,0" />
-                                </GridViewColumn.Header>
-                                <GridViewColumn.CellTemplate>
-                                    <DataTemplate DataType="{x:Type vm:ItemViewModel}">
-                                        <TextBlock Text="{Binding SizeText}" HorizontalAlignment="Right" Margin="0,0,8,0" />
-                                    </DataTemplate>
-                                </GridViewColumn.CellTemplate>
-                            </GridViewColumn>
-                        </GridView>
-                    </ListView.View>
-                </ListView>
+                <!-- ===== File panes: the left one always, the right one when the tab is split (Ctrl+\) ===== -->
+                <Grid x:Name="PanesGrid">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" MinWidth="220" />
+                        <ColumnDefinition x:Name="DualSplitterColumn" Width="0" />
+                        <ColumnDefinition x:Name="RightPaneColumn" Width="0" />
+                    </Grid.ColumnDefinitions>
+                    <Border x:Name="LeftPaneHost" Grid.Column="0" BorderThickness="0" BorderBrush="Transparent"
+                            PreviewMouseDown="OnPanePreviewMouseDown" PreviewGotKeyboardFocus="OnPaneGotFocus">
+                        <Grid>
+                            <ListView x:Name="LeftList" AutomationProperties.Name="Items" SelectionMode="Extended"
+                                      Style="{StaticResource FileListStyle}"
+                                      BorderThickness="0" Background="Transparent" ItemContainerStyle="{StaticResource FileRowStyle}"
+                                      VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                                      VirtualizingPanel.IsContainerVirtualizable="True" VirtualizingPanel.CacheLength="1,2"
+                                      VirtualizingPanel.CacheLengthUnit="Page" VirtualizingPanel.IsVirtualizingWhenGrouping="True" ScrollViewer.IsDeferredScrollingEnabled="False"
+                                      IsTextSearchEnabled="True" TextSearch.TextPath="DisplayName"
+                                      SelectionChanged="OnSelectionChanged" ContextMenuOpening="OnFileListContextMenuOpening"
+                                      PreviewMouseLeftButtonDown="OnFileListMouseDown" PreviewKeyDown="OnFileListKeyDown"
+                                      GridViewColumnHeader.Click="OnColumnHeaderClick" ContextMenu="{x:Null}" PreviewMouseWheel="OnFileListPreviewMouseWheel"
+                                      PreviewMouseMove="OnFileListPreviewMouseMove" PreviewMouseUp="OnFileListPreviewMouseUp"
+                                      PreviewMouseRightButtonDown="OnFileListPreviewRightButtonDown" PreviewTextInput="OnFileListTextInput"
+                                      AllowDrop="True" DragEnter="OnFileListDragOver" DragOver="OnFileListDragOver" Drop="OnFileListDrop" />
 
-                <Canvas IsHitTestVisible="False" ClipToBounds="True">
-                    <Rectangle x:Name="MarqueeRect" Visibility="Collapsed" RadiusX="2" RadiusY="2" Opacity="0.3" Fill="{DynamicResource AccentFillColorDefaultBrush}" />
-                </Canvas>
+                            <Canvas IsHitTestVisible="False" ClipToBounds="True">
+                                <Rectangle x:Name="LeftMarquee" Visibility="Collapsed" RadiusX="2" RadiusY="2" Opacity="0.3" Fill="{DynamicResource AccentFillColorDefaultBrush}" />
+                            </Canvas>
 
-                <!-- Overlays: empty folder, error, loading -->
-                <TextBlock Text="{Binding SelectedTab.EmptyMessage}" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,60,0,0"
-                           Foreground="{DynamicResource TextFillColorSecondaryBrush}" IsHitTestVisible="False"
-                           Visibility="{Binding SelectedTab.ShowEmptyMessage, Converter={StaticResource BoolToVis}}" />
-                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Top" Margin="24,60,24,0"
-                            Visibility="{Binding SelectedTab.Error, Converter={StaticResource NullToVis}}">
-                    <TextBlock Text="&#xE783;" FontFamily="{StaticResource IconFont}" FontSize="28" HorizontalAlignment="Center" Margin="0,0,0,10" />
-                    <TextBlock Text="{Binding SelectedTab.Error}" TextWrapping="Wrap" TextAlignment="Center" MaxWidth="460" />
-                    <Button Content="Try again" HorizontalAlignment="Center" Margin="0,14,0,0" Click="OnRefreshClick" />
-                </StackPanel>
-                <ProgressBar IsIndeterminate="True" VerticalAlignment="Top" Height="2" MinHeight="2" Margin="0,30,0,0"
-                             Visibility="{Binding SelectedTab.IsLoading, Converter={StaticResource BoolToVis}}" />
+                            <!-- Overlays: empty folder, error, loading. The host's DataContext is the pane's tab. -->
+                            <TextBlock Text="{Binding EmptyMessage}" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,60,0,0"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}" IsHitTestVisible="False"
+                                       Visibility="{Binding ShowEmptyMessage, Converter={StaticResource BoolToVis}, FallbackValue=Collapsed}" />
+                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Top" Margin="24,60,24,0"
+                                        Visibility="{Binding Error, Converter={StaticResource NullToVis}, FallbackValue=Collapsed}">
+                                <TextBlock Text="&#xE783;" FontFamily="{StaticResource IconFont}" FontSize="28" HorizontalAlignment="Center" Margin="0,0,0,10" />
+                                <TextBlock Text="{Binding Error}" TextWrapping="Wrap" TextAlignment="Center" MaxWidth="460" />
+                                <Button Content="Try again" HorizontalAlignment="Center" Margin="0,14,0,0" Click="OnRefreshClick" />
+                            </StackPanel>
+                            <ProgressBar IsIndeterminate="True" VerticalAlignment="Top" Height="2" MinHeight="2" Margin="0,30,0,0"
+                                         Visibility="{Binding IsLoading, Converter={StaticResource BoolToVis}, FallbackValue=Collapsed}" />
+                        </Grid>
+                    </Border>
+                    <GridSplitter x:Name="DualSplitter" Grid.Column="1" Width="5" HorizontalAlignment="Center" VerticalAlignment="Stretch"
+                                  Background="{DynamicResource DividerStrokeColorDefaultBrush}" ResizeBehavior="PreviousAndNext" Visibility="Collapsed" />
+                    <Border x:Name="RightPaneHost" Grid.Column="2" BorderThickness="0" BorderBrush="Transparent"
+                            PreviewMouseDown="OnPanePreviewMouseDown" PreviewGotKeyboardFocus="OnPaneGotFocus">
+                        <Grid>
+                            <ListView x:Name="RightList" AutomationProperties.Name="Items, right pane" SelectionMode="Extended"
+                                      Style="{StaticResource FileListStyle}"
+                                      BorderThickness="0" Background="Transparent" ItemContainerStyle="{StaticResource FileRowStyle}"
+                                      VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                                      VirtualizingPanel.IsContainerVirtualizable="True" VirtualizingPanel.CacheLength="1,2"
+                                      VirtualizingPanel.CacheLengthUnit="Page" VirtualizingPanel.IsVirtualizingWhenGrouping="True" ScrollViewer.IsDeferredScrollingEnabled="False"
+                                      IsTextSearchEnabled="True" TextSearch.TextPath="DisplayName"
+                                      SelectionChanged="OnSelectionChanged" ContextMenuOpening="OnFileListContextMenuOpening"
+                                      PreviewMouseLeftButtonDown="OnFileListMouseDown" PreviewKeyDown="OnFileListKeyDown"
+                                      GridViewColumnHeader.Click="OnColumnHeaderClick" ContextMenu="{x:Null}" PreviewMouseWheel="OnFileListPreviewMouseWheel"
+                                      PreviewMouseMove="OnFileListPreviewMouseMove" PreviewMouseUp="OnFileListPreviewMouseUp"
+                                      PreviewMouseRightButtonDown="OnFileListPreviewRightButtonDown" PreviewTextInput="OnFileListTextInput"
+                                      AllowDrop="True" DragEnter="OnFileListDragOver" DragOver="OnFileListDragOver" Drop="OnFileListDrop" />
+
+                            <Canvas IsHitTestVisible="False" ClipToBounds="True">
+                                <Rectangle x:Name="RightMarquee" Visibility="Collapsed" RadiusX="2" RadiusY="2" Opacity="0.3" Fill="{DynamicResource AccentFillColorDefaultBrush}" />
+                            </Canvas>
+
+                            <!-- Overlays: empty folder, error, loading. The host's DataContext is the pane's tab. -->
+                            <TextBlock Text="{Binding EmptyMessage}" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,60,0,0"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}" IsHitTestVisible="False"
+                                       Visibility="{Binding ShowEmptyMessage, Converter={StaticResource BoolToVis}, FallbackValue=Collapsed}" />
+                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Top" Margin="24,60,24,0"
+                                        Visibility="{Binding Error, Converter={StaticResource NullToVis}, FallbackValue=Collapsed}">
+                                <TextBlock Text="&#xE783;" FontFamily="{StaticResource IconFont}" FontSize="28" HorizontalAlignment="Center" Margin="0,0,0,10" />
+                                <TextBlock Text="{Binding Error}" TextWrapping="Wrap" TextAlignment="Center" MaxWidth="460" />
+                                <Button Content="Try again" HorizontalAlignment="Center" Margin="0,14,0,0" Click="OnRefreshClick" />
+                            </StackPanel>
+                            <ProgressBar IsIndeterminate="True" VerticalAlignment="Top" Height="2" MinHeight="2" Margin="0,30,0,0"
+                                         Visibility="{Binding IsLoading, Converter={StaticResource BoolToVis}, FallbackValue=Collapsed}" />
+                        </Grid>
+                    </Border>
+                </Grid>
                 <!-- ===== Preview / details pane (Alt+P, Alt+Shift+P) ===== -->
                 <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Center" VerticalAlignment="Stretch" Background="Transparent"
                               ResizeBehavior="PreviousAndNext" DragCompleted="OnPaneResized"
@@ -636,7 +691,60 @@
             <TextBlock DockPanel.Dock="Left" VerticalAlignment="Center" Text="{Binding SelectedTab.SelectionText}" Margin="16,0,0,0" Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
             <ToggleButton x:Name="ViewIconsButton" DockPanel.Dock="Right" Style="{StaticResource StatusToggle}" Content="&#xE8A9;" Click="OnViewIconsClick" ToolTip="Large icons (Ctrl+Shift+2)" AutomationProperties.Name="Large icons" />
             <ToggleButton x:Name="ViewDetailsButton" DockPanel.Dock="Right" Style="{StaticResource StatusToggle}" Content="&#xE8EF;" Click="OnViewDetailsClick" ToolTip="Details (Ctrl+Shift+6)" Margin="12,0,2,0" AutomationProperties.Name="Details" />
+            <Button x:Name="TransfersButton" DockPanel.Dock="Right" Style="{StaticResource CommandButton}" Click="OnTransfersClick" Margin="8,0,4,0"
+                    Padding="8,0" MinHeight="24" Visibility="Collapsed" AutomationProperties.Name="Transfers" ToolTip="Copies and moves in progress or waiting">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="&#xE8AB;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center" Margin="0,0,6,0" />
+                    <TextBlock x:Name="TransfersText" VerticalAlignment="Center" />
+                </StackPanel>
+            </Button>
             <TextBlock DockPanel.Dock="Right" Text="{Binding Notice}" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorPrimaryBrush}" TextTrimming="CharacterEllipsis" />
         </DockPanel>
+
+        <!-- ===== Command palette (Ctrl+K, Ctrl+Shift+P). A popup, so it also covers a native preview handler. ===== -->
+        <Popup x:Name="PalettePopup" PlacementTarget="{Binding ElementName=RootGrid}" Placement="Relative" StaysOpen="False"
+               AllowsTransparency="True" Closed="OnPaletteClosed">
+            <Border Width="640" Margin="16" CornerRadius="8" BorderThickness="1"
+                    Background="{DynamicResource SolidBackgroundFillColorBaseBrush}" BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                    TextElement.Foreground="{DynamicResource TextFillColorPrimaryBrush}">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="20" ShadowDepth="4" Opacity="0.35" />
+                </Border.Effect>
+                <DockPanel>
+                    <TextBox x:Name="PaletteBox" DockPanel.Dock="Top" Margin="10,10,10,6" MinHeight="34" VerticalContentAlignment="Center"
+                             AutomationProperties.Name="Type a command or a place" TextChanged="OnPaletteTextChanged" PreviewKeyDown="OnPaletteKeyDown" />
+                    <TextBlock x:Name="PaletteEmpty" DockPanel.Dock="Top" Text="No matching commands or places." Margin="16,6,16,12"
+                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" Visibility="Collapsed" />
+                    <ListBox x:Name="PaletteList" MaxHeight="440" Margin="6,0,6,8" BorderThickness="0" Background="Transparent" Focusable="False"
+                             AutomationProperties.Name="Commands" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             VirtualizingPanel.IsVirtualizing="True" PreviewMouseLeftButtonUp="OnPaletteListClick">
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                <Setter Property="Padding" Value="8,5" />
+                                <Setter Property="MinHeight" Value="34" />
+                                <Setter Property="Margin" Value="0,1" />
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:PaletteEntry}">
+                                <DockPanel Margin="2,3" AutomationProperties.Name="{Binding Title}">
+                                    <TextBlock DockPanel.Dock="Left" Text="{Binding Glyph}" FontFamily="{StaticResource IconFont}" Width="26"
+                                               VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                                    <TextBlock DockPanel.Dock="Right" Text="{Binding Gesture}" Margin="12,0,4,0" VerticalAlignment="Center"
+                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{Binding Detail}" FontSize="11" TextTrimming="CharacterEllipsis"
+                                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                   Visibility="{Binding Detail, Converter={StaticResource NonEmptyToVis}}" />
+                                    </StackPanel>
+                                </DockPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+            </Border>
+        </Popup>
     </Grid>
 </Window>

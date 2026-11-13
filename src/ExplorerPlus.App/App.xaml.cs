@@ -5,27 +5,42 @@ using ExplorerPlus.App.Views;
 using ExplorerPlus.Core.Integration;
 using ExplorerPlus.Core.Navigation;
 using ExplorerPlus.Core.Shell;
+using ExplorerPlus.Indexing;
 using ExplorerPlus.Interop;
 
 namespace ExplorerPlus.App;
 
 public partial class App : Application
 {
-    private SingleInstance? _instance;
+    private readonly SingleInstance? _instance;
+    private static bool _exiting;
+
+    /// <param name="instance">The single-instance lock, already taken by <see cref="Program.Main"/>; null for the registration switches.</param>
+    public App(SingleInstance? instance) => _instance = instance;
 
     public static IEnumerable<MainWindow> MainWindows => Current.Windows.OfType<MainWindow>();
+
+    public static bool IsRegistrationSwitch(string[] args) =>
+        args is [var only] && only.ToLowerInvariant() is "--register-default" or "--unregister-default" or "--uninstall";
 
     protected override void OnStartup(StartupEventArgs e)
     {
         // Run by the installer (and usable from a script): switch the default file manager without opening a window.
-        if (e.Args is [var only] && only.ToLowerInvariant() is "--register-default" or "--unregister-default")
+        // --uninstall also removes the sign-in entry.
+        if (_instance is null) // Program.Main takes no lock only for these switches
         {
+            var only = e.Args[0].ToLowerInvariant();
             var code = 0;
             try
             {
                 var manager = DefaultFileManager.ForCurrentUser();
-                if (only.Equals("--register-default", StringComparison.OrdinalIgnoreCase)) manager.Register(Environment.ProcessPath!);
+                if (only == "--register-default") manager.Register(Environment.ProcessPath!);
                 else manager.Unregister();
+                if (only == "--uninstall")
+                {
+                    Background.RemoveStartupEntry();
+                    IndexServiceSetup.RemoveOnUninstall();
+                }
             }
             catch { code = 1; }
             Shutdown(code);
@@ -34,13 +49,6 @@ public partial class App : Application
 
         // Before any window: groups the taskbar button and the jump list with the Start menu shortcut.
         Shell32.SetCurrentProcessExplicitAppUserModelID(JumpLists.AppId);
-
-        _instance = new SingleInstance();
-        if (!_instance.IsPrimary && _instance.TrySendToPrimary(e.Args))
-        {
-            Shutdown();
-            return;
-        }
 
         base.OnStartup(e);
 
@@ -57,6 +65,7 @@ public partial class App : Application
         AppSettings.Load();
         ApplyTheme();
         FolderLoader.HomeOptions = QuickAccess.HomeOptions;
+        IndexSearch.Options = () => new IndexSearchOptions(AppSettings.Current.ShowHiddenFiles, AppSettings.Current.ShowProtectedOsFiles);
         _ = ShellNewTemplates.GetAsync(); // read the New ▸ list in the background so the menu opens instantly
         FolderSizeWatcher.Start();
         ThumbnailService.Start();
@@ -73,8 +82,26 @@ public partial class App : Application
         };
 
         _instance.Listen(args => Dispatcher.BeginInvoke(() => HandleCommandLine(args, fromOtherInstance: true)));
+        Background.Listen(ExitAll);
         HandleCommandLine(e.Args, fromOtherInstance: false);
         JumpLists.Schedule();
+        Task.Run(Background.SyncStartupEntry); // keeps the sign-in entry pointing at this copy
+    }
+
+    /// <summary>Closes every window and ends the process, also when Explorer+ would otherwise stay in the background.</summary>
+    public static void ExitAll()
+    {
+        _exiting = true;
+        var windows = MainWindows.ToList();
+        if (windows.Count == 0) Current.Shutdown();
+        foreach (var w in windows) w.Close(); // the last one to close saves the session and shuts down
+    }
+
+    /// <summary>No window left, staying in the background: stop timers and give memory back.</summary>
+    private static void GoIdle()
+    {
+        FolderSizeWatcher.SetActive(false);
+        Current.Dispatcher.BeginInvoke(Background.Trim, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
     }
 
     public static void ApplyTheme() =>
@@ -87,6 +114,25 @@ public partial class App : Application
 
     private static void HandleCommandLine(string[] args, bool fromOtherInstance)
     {
+        if (Program.IsOnly(args, Program.QuitArg))
+        {
+            ExitAll();
+            return;
+        }
+        if (Program.IsOnly(args, Program.BackgroundArg))
+        {
+            if (MainWindows.Any()) return;
+            if (!fromOtherInstance && !AppSettings.Current.KeepRunningInBackground)
+            {
+                Current.Shutdown(); // started by the installer or a stale sign-in entry, but turned off in Settings
+                return;
+            }
+            if (!fromOtherInstance)
+                Current.Dispatcher.BeginInvoke(Views.MainWindow.Prewarm, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+            GoIdle();
+            return;
+        }
+
         var cmd = ExplorerCommandLine.Parse(args);
         var settings = AppSettings.Current;
         var targets = cmd.Paths.ToList();
@@ -106,7 +152,10 @@ public partial class App : Application
             return;
         }
 
-        if (targets.Count == 0 && !fromOtherInstance && settings.RestoreSession && settings.LastSession.Count > 0)
+        // With "Reopen the tabs from last time" on (off by default), a plain start reopens them, also when it wakes up
+        // Explorer+ running in the background. Otherwise a closed window's tabs stay closed.
+        var freshStart = !fromOtherInstance || existing is null && !cmd.NewWindow;
+        if (targets.Count == 0 && freshStart && settings.RestoreSession && settings.LastSession.Count > 0)
             targets.AddRange(settings.LastSession);
         if (targets.Count == 0) targets.Add(settings.StartLocation);
 
@@ -122,7 +171,7 @@ public partial class App : Application
         w.BringToFront();
     }
 
-    /// <summary>Called by a window when it closes; the last one saves the session and exits.</summary>
+    /// <summary>Called by a window when it closes; the last one saves the session and exits or goes idle.</summary>
     public static void OnWindowClosed(MainWindow window)
     {
         if (MainWindows.Any(w => w != window && w.IsLoaded)) return;
@@ -130,7 +179,8 @@ public partial class App : Application
         settings.LastSession = window.ViewModel.SessionTabs.ToList();
         settings.Save();
         ShellClipboard.OleFlushClipboard(); // keep copied files pasteable after we exit
-        Current.Shutdown();
+        if (_exiting || !settings.KeepRunningInBackground) Current.Shutdown();
+        else GoIdle();
     }
 
     protected override void OnExit(ExitEventArgs e)

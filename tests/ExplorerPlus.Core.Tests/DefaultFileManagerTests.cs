@@ -84,6 +84,25 @@ public class DefaultFileManagerTests : IDisposable
     }
 
     [Fact]
+    public void Unregister_restores_values_whose_keys_the_uninstaller_already_deleted()
+    {
+        const string command = DefaultFileManager.WinEFolder + @"\shell\opennewwindow\command";
+        using (var key = _classes.CreateSubKey(command)) key.SetValue(null, "files.exe");
+
+        Manager.Register(@"C:\A\ExplorerPlus.exe");
+        // What the MSI's own registry cleanup does on uninstall, before the custom action runs.
+        _classes.DeleteSubKeyTree($@"Directory\shell\{DefaultFileManager.Verb}");
+        _classes.DeleteSubKeyTree($@"Drive\shell\{DefaultFileManager.Verb}");
+        _classes.DeleteSubKeyTree(command);
+
+        Manager.Unregister();
+        Assert.Equal("files.exe", Read(command));
+        Assert.Null(Read(command, "DelegateExecute"));
+        Assert.Null(_classes.OpenSubKey("Directory"));
+        Assert.Empty(_backup.GetValueNames());
+    }
+
+    [Fact]
     public void Unregister_without_register_does_nothing()
     {
         Manager.Unregister();

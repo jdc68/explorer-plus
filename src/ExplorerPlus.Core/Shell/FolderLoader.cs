@@ -23,6 +23,9 @@ public static class FolderLoader
         var home = location.IsHome ? HomeOptions?.Invoke() ?? new HomeFeedOptions([], [], true) : null;
         Task producer = home is not null
             ? StaWorkerPool.Enumeration.Run(() => Produce(HomeFeed.Enumerate(home, ct), channel.Writer, ct), ct)
+            : location.IsIndexSearch
+            ? Task.Factory.StartNew(() => Produce(IndexSearch.Enumerate(location, ct), channel.Writer, ct),
+                ct, TaskCreationOptions.LongRunning, TaskScheduler.Default)
             : location.IsFileSystemFolder
             ? Task.Factory.StartNew(() => Produce(FastFolderEnumerator.Enumerate(location.FileSystemPath!, ct), channel.Writer, ct),
                 ct, TaskCreationOptions.LongRunning, TaskScheduler.Default)

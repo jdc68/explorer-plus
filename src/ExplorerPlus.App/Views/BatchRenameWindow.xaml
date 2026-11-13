@@ -1,0 +1,132 @@
+<Window x:Class="ExplorerPlus.App.Views.BatchRenameWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Rename items - Explorer+" Width="820" Height="640" MinWidth="560" MinHeight="420"
+        UseLayoutRounding="True" TextOptions.TextFormattingMode="Display" WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False">
+
+    <Window.Resources>
+        <Style x:Key="Label" TargetType="TextBlock">
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Margin" Value="0,0,12,0" />
+        </Style>
+        <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Margin" Value="0,4" />
+        </Style>
+        <Style TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}">
+            <Setter Property="Margin" Value="0,0,20,0" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="24,16,24,20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock x:Name="Heading" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,12" AutomationProperties.HeadingLevel="Level1" />
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <TextBlock x:Name="FindLabel" Text="Find" Style="{StaticResource Label}" />
+            <TextBox x:Name="FindBox" Grid.Column="1" TextChanged="OnChanged" AutomationProperties.LabeledBy="{Binding ElementName=FindLabel}" />
+            <TextBlock x:Name="ReplaceLabel" Grid.Column="2" Text="Replace with" Style="{StaticResource Label}" Margin="16,0,12,0" />
+            <TextBox x:Name="ReplaceBox" Grid.Column="3" TextChanged="OnChanged" AutomationProperties.LabeledBy="{Binding ElementName=ReplaceLabel}" />
+
+            <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3" Orientation="Horizontal" Margin="0,4,0,8">
+                <CheckBox x:Name="RegexBox" Content="Regular expression" Click="OnChanged"
+                          ToolTip="Find is a .NET regular expression; Replace can use $1, $2 … for groups." />
+                <CheckBox x:Name="MatchCaseBox" Content="Match case" Click="OnChanged" />
+            </StackPanel>
+
+            <TextBlock x:Name="PatternLabel" Grid.Row="2" Text="New name" Style="{StaticResource Label}" />
+            <TextBox x:Name="PatternBox" Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="3" Text="{}{name}" TextChanged="OnChanged"
+                     FontFamily="Cascadia Mono, Consolas" AutomationProperties.LabeledBy="{Binding ElementName=PatternLabel}" />
+            <TextBlock Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="3" TextWrapping="Wrap" Margin="0,0,0,8"
+                       Foreground="{DynamicResource TextFillColorSecondaryBrush}">
+                <Run Text="{}{name}" FontFamily="Cascadia Mono, Consolas" /> current name (after Find and replace) ·
+                <Run Text="{}{n}" FontFamily="Cascadia Mono, Consolas" /> or <Run Text="{}{n:000}" FontFamily="Cascadia Mono, Consolas" /> number ·
+                <Run Text="{}{date}" FontFamily="Cascadia Mono, Consolas" /> or <Run Text="{}{date:yyyyMMdd}" FontFamily="Cascadia Mono, Consolas" /> date modified ·
+                <Run Text="{}{ext}" FontFamily="Cascadia Mono, Consolas" /> extension ·
+                <Run Text="{}{parent}" FontFamily="Cascadia Mono, Consolas" /> folder name
+            </TextBlock>
+
+            <WrapPanel Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="4" Orientation="Horizontal">
+                <TextBlock x:Name="StartLabel" Text="Numbers start at" Style="{StaticResource Label}" />
+                <TextBox x:Name="StartBox" Width="70" Text="1" TextChanged="OnChanged" Margin="0,4,20,4" AutomationProperties.LabeledBy="{Binding ElementName=StartLabel}" />
+                <TextBlock x:Name="StepLabel" Text="Step" Style="{StaticResource Label}" />
+                <TextBox x:Name="StepBox" Width="60" Text="1" TextChanged="OnChanged" Margin="0,4,20,4" AutomationProperties.LabeledBy="{Binding ElementName=StepLabel}" />
+                <TextBlock x:Name="CaseLabel" Text="Case" Style="{StaticResource Label}" />
+                <ComboBox x:Name="CaseBox" Width="150" SelectedIndex="0" SelectionChanged="OnChanged" Margin="0,4,20,4"
+                          AutomationProperties.LabeledBy="{Binding ElementName=CaseLabel}">
+                    <ComboBoxItem Content="Unchanged" />
+                    <ComboBoxItem Content="lowercase" />
+                    <ComboBoxItem Content="UPPERCASE" />
+                    <ComboBoxItem Content="Title Case" />
+                </ComboBox>
+                <CheckBox x:Name="ExtensionBox" Content="Include the extension" Click="OnChanged"
+                          ToolTip="Apply Find, the new name and the case to the whole name, extension included. Otherwise extensions stay as they are." />
+            </WrapPanel>
+        </Grid>
+
+        <!-- The Fluent theme has no GridView styles; borrow the file list's. -->
+        <ListView x:Name="PreviewList" Grid.Row="2" Margin="0,12,0,0" AutomationProperties.Name="Preview of the new names"
+                  Style="{StaticResource FileListStyle}" ItemContainerStyle="{StaticResource FileRowBaseStyle}"
+                  BorderThickness="1" BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                  VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling">
+            <ListView.View>
+                <GridView>
+                    <GridViewColumn Header="Current name" Width="270" DisplayMemberBinding="{Binding OldName}" />
+                    <GridViewColumn Header="New name" Width="270">
+                        <GridViewColumn.CellTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding NewName}" TextTrimming="CharacterEllipsis">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsChanged}" Value="True">
+                                                    <Setter Property="FontWeight" Value="SemiBold" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </DataTemplate>
+                        </GridViewColumn.CellTemplate>
+                    </GridViewColumn>
+                    <GridViewColumn Header="Problem" Width="220">
+                        <GridViewColumn.CellTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Error}" Foreground="{DynamicResource SystemFillColorCriticalBrush}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Error}" />
+                            </DataTemplate>
+                        </GridViewColumn.CellTemplate>
+                    </GridViewColumn>
+                </GridView>
+            </ListView.View>
+        </ListView>
+
+        <DockPanel Grid.Row="3" Margin="0,16,0,0" LastChildFill="True">
+            <Button DockPanel.Dock="Right" Content="Cancel" MinWidth="96" IsCancel="True" Margin="8,0,0,0" />
+            <Button x:Name="RenameButton" DockPanel.Dock="Right" Content="Rename" MinWidth="96" IsDefault="True" Click="OnRenameClick"
+                    Style="{StaticResource AccentButtonStyle}" />
+            <TextBlock x:Name="Summary" VerticalAlignment="Center" TextWrapping="Wrap" Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+        </DockPanel>
+    </Grid>
+</Window>

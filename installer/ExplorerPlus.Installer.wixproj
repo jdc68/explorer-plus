@@ -6,8 +6,9 @@
     <ProductVersion Condition="'$(ProductVersion)' == ''">0.0.0</ProductVersion>
     <OutputName>ExplorerPlus-$(ProductVersion)-$(Platform)</OutputName>
     <DefineConstants>ProductVersion=$(ProductVersion);PublishDir=$(PublishDir);IconFile=$(MSBuildThisFileDirectory)..\src\ExplorerPlus.App\Assets\ExplorerPlus.ico</DefineConstants>
-    <!-- Per-user install under %LocalAppData%\Programs: these ICEs assume per-machine folders. -->
-    <SuppressIces>ICE38;ICE64;ICE91</SuppressIces>
+    <!-- Per-user install under %LocalAppData%\Programs: ICE38/64/91 assume per-machine folders. ICE61 flags
+         AllowSameVersionUpgrades, which is on purpose. -->
+    <SuppressIces>ICE38;ICE64;ICE91;ICE61</SuppressIces>
     <!-- The solution-wide C# settings don't apply here. -->
     <TargetFramework></TargetFramework>
     <Nullable></Nullable>

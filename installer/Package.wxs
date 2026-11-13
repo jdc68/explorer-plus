@@ -8,7 +8,8 @@
   <Package Name="Explorer+" Manufacturer="Denis Cernat" Version="$(var.ProductVersion)"
            UpgradeCode="1727c5fb-2cab-40f9-8972-682d1585ca16" Scope="perUser" Compressed="yes" InstallerVersion="500">
 
-    <MajorUpgrade DowngradeErrorMessage="A newer version of Explorer+ is already installed." />
+    <!-- A rebuild with the same version still replaces the installed copy instead of installing next to it. -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes" DowngradeErrorMessage="A newer version of Explorer+ is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
     <Icon Id="AppIcon" SourceFile="$(var.IconFile)" />
@@ -27,6 +28,14 @@
         <RemoveFolder Id="RemoveInstallFolder" Directory="INSTALLFOLDER" On="uninstall" />
         <RemoveFolder Id="RemoveProgramsFolder" Directory="ProgramsFolder" On="uninstall" />
         <RegistryValue Root="HKCU" Key="Software\ExplorerPlus\Install" Name="Path" Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
+        <!--
+          The "default file manager" keys, deleted by Windows Installer itself on uninstall, as a safety net in case the
+          custom action below fails. With these keys gone, a Directory\shell default left pointing at ExplorerPlus.open
+          names a verb that no longer exists, and Windows falls back to File Explorer (checked by hand).
+        -->
+        <RegistryKey Root="HKCU" Key="Software\Classes\Directory\shell\ExplorerPlus.open" ForceDeleteOnUninstall="yes" />
+        <RegistryKey Root="HKCU" Key="Software\Classes\Drive\shell\ExplorerPlus.open" ForceDeleteOnUninstall="yes" />
+        <RegistryKey Root="HKCU" Key="Software\Classes\CLSID\{52205fd8-5dfb-447d-801a-d0b52f2e83e1}\shell\opennewwindow\command" ForceDeleteOnUninstall="yes" />
       </Component>
     </ComponentGroup>
 
@@ -41,12 +50,25 @@
     </StandardDirectory>
 
     <!--
-      On uninstall (not on upgrade), undo the "default file manager" switch while the exe is still there; otherwise
-      folder links and Win+E would point at a program that no longer exists.
+      Before the files go (uninstall, and the old version's removal during an upgrade): Explorer+ may be running in the
+      background with no window, so ask it to exit and wait for it, rather than leave locked files for a reboot.
     -->
-    <CustomAction Id="UnregisterDefault" Directory="INSTALLFOLDER" ExeCommand="&quot;[INSTALLFOLDER]ExplorerPlus.exe&quot; --unregister-default"
+    <CustomAction Id="QuitRunning" Directory="INSTALLFOLDER" ExeCommand="&quot;[INSTALLFOLDER]ExplorerPlus.exe&quot; --quit"
                   Execute="deferred" Impersonate="yes" Return="ignore" />
+    <!--
+      On uninstall (not on upgrade), undo the "default file manager" switch while the exe is still there, which also
+      puts back what another file manager had set before, and remove the sign-in entry. Runs after
+      RemoveRegistryValues has deleted the keys above.
+    -->
+    <CustomAction Id="UnregisterDefault" Directory="INSTALLFOLDER" ExeCommand="&quot;[INSTALLFOLDER]ExplorerPlus.exe&quot; --uninstall"
+                  Execute="deferred" Impersonate="yes" Return="ignore" />
+    <!-- After install or upgrade: start in the background so folders open instantly right away (exits at once when
+         that is turned off in Settings). NOSTART=1 skips it (build.ps1 -NoStart, for installs run from a sandboxed shell). -->
+    <CustomAction Id="StartInBackground" Directory="INSTALLFOLDER" ExeCommand="&quot;[INSTALLFOLDER]ExplorerPlus.exe&quot; --background"
+                  Execute="immediate" Impersonate="yes" Return="asyncNoWait" />
     <InstallExecuteSequence>
+      <Custom Action="StartInBackground" After="InstallFinalize" Condition="NOT REMOVE AND NOT NOSTART" />
+      <Custom Action="QuitRunning" Before="UnregisterDefault" Condition="REMOVE~=&quot;ALL&quot;" />
       <Custom Action="UnregisterDefault" Before="RemoveFiles" Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
     </InstallExecuteSequence>
 

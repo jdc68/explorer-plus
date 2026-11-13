@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <Version>0.1.0</Version>
+    <Version>0.1.7</Version>
     <Product>Explorer+</Product>
     <!-- WPF0001: .NET 9 Fluent theme is marked experimental. CA1416: whole solution is Windows-only. -->
     <NoWarn>$(NoWarn);WPF0001;CA1416;SYSLIB1054;SYSLIB1096</NoWarn>

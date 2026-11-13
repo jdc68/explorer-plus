@@ -77,10 +77,15 @@ public sealed class DefaultFileManager
         {
             if (name == CreatedKeysValue || !TrySplit(name, out var keyPath, out var valueName)) continue;
             var saved = _backup.GetValue(name) as string;
+            if (saved is not null && saved.StartsWith('='))
+            {
+                // The key may be gone: the MSI deletes the keys Explorer+ writes to before this runs on uninstall.
+                using var restore = _classes.CreateSubKey(keyPath, writable: true);
+                restore.SetValue(valueName, saved[1..]);
+                continue;
+            }
             using var key = _classes.OpenSubKey(keyPath, writable: true);
-            if (key is null) continue;
-            if (saved is not null && saved.StartsWith('=')) key.SetValue(valueName, saved[1..]);
-            else key.DeleteValue(valueName ?? "", throwOnMissingValue: false);
+            key?.DeleteValue(valueName ?? "", throwOnMissingValue: false);
         }
         foreach (var parent in VerbParents) _classes.DeleteSubKeyTree($@"{parent}\{Verb}", throwOnMissingSubKey: false);
 

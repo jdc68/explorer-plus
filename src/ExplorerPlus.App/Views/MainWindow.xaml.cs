@@ -21,21 +21,18 @@ public partial class MainWindow : Window
     private readonly string? _initialSelect;
     private TabViewModel? _adoptTab;
     private IntPtr _hwnd;
-    private TabViewModel? _observedTab;
     private ItemViewModel? _renaming;
     private bool _renameCancelled;
     private bool _syncingSelection;
     private WindowState _stateBeforeFullScreen;
-    private readonly GridView _detailsView;
-    private ViewMode? _appliedMode;
+    private bool _prewarm;
 
     public MainViewModel ViewModel { get; }
 
     public MainWindow(IReadOnlyList<string> targets, string? select)
     {
         InitializeComponent();
-        _detailsView = (GridView)FileList.View;
-        InitColumns();
+        InitPanes();
         _initialTargets = targets;
         _initialSelect = select;
         ViewModel = new MainViewModel(() => _hwnd);
@@ -43,15 +40,22 @@ public partial class MainWindow : Window
         InitPane();
 
         RestorePlacement();
+        FolderSizeWatcher.SetActive(true); // paused while Explorer+ had no window
         SidebarColumn.Width = new GridLength(Math.Clamp(AppSettings.Current.SidebarWidth, 140, 600));
 
         SourceInitialized += OnSourceInitialized;
         Loaded += OnLoaded;
+        Loaded += (_, _) =>
+        {
+            TransferQueue.Changed += UpdateTransfers;
+            UpdateTransfers();
+        };
+        Closed += (_, _) => TransferQueue.Changed -= UpdateTransfers;
         Closing += OnClosing;
         Closed += (_, _) =>
         {
             ViewModel.Dispose();
-            App.OnWindowClosed(this);
+            if (!_prewarm) App.OnWindowClosed(this);
         };
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
         Address.EditFinished += FocusList;
@@ -71,6 +75,21 @@ public partial class MainWindow : Window
         Left = topLeft.X;
         Top = topLeft.Y;
         ApplyTitleBarLayout();
+    }
+
+    /// <summary>
+    /// Builds a window and lays out its templates without showing it, then drops it: after a background start, the
+    /// first real window then opens as fast as later ones.
+    /// </summary>
+    public static void Prewarm()
+    {
+        var w = new MainWindow([], null) { _prewarm = true };
+        if (w.Content is FrameworkElement root)
+        {
+            root.Measure(new Size(w.Width, w.Height));
+            root.Arrange(new Rect(0, 0, w.Width, w.Height));
+        }
+        w.Close();
     }
 
     private TabViewModel? Tab => ViewModel.SelectedTab;
@@ -168,107 +187,71 @@ public partial class MainWindow : Window
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(MainViewModel.Progress))
-        {
-            var progress = ViewModel.Progress;
-            TaskbarItemInfo.ProgressState = progress is null ? TaskbarItemProgressState.None : TaskbarItemProgressState.Normal;
-            TaskbarItemInfo.ProgressValue = progress ?? 0;
-            return;
-        }
-        if (e.PropertyName != nameof(MainViewModel.SelectedTab)) return;
-
-        if (_observedTab is not null)
-        {
-            _observedTab.SelectionRequested -= OnSelectionRequested;
-            _observedTab.ScrollToTopRequested -= OnScrollToTopRequested;
-            _observedTab.RenameRequested -= BeginRename;
-            _observedTab.PropertyChanged -= OnTabPropertyChanged;
-            _observedTab.SavedScrollOffset = ListScrollViewer?.VerticalOffset ?? 0;
-            _observedTab.SavedSelection = Selection;
-        }
-        _observedTab = Tab;
-        if (_observedTab is null) return;
-        _observedTab.SelectionRequested += OnSelectionRequested;
-        _observedTab.ScrollToTopRequested += OnScrollToTopRequested;
-        _observedTab.RenameRequested += BeginRename;
-        _observedTab.PropertyChanged += OnTabPropertyChanged;
-        RebuildColumns(_observedTab);
-        ApplyViewMode(_observedTab.ViewMode);
-
-        var tab = _observedTab;
-        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
-        {
-            if (Tab != tab) return;
-            if (tab.SavedSelection.Count > 0)
-            {
-                SelectItems(tab.SavedSelection, scroll: false);
-                ListScrollViewer?.ScrollToVerticalOffset(tab.SavedScrollOffset);
-            }
-            else if (tab.SelectedItems.Count > 0)
-            {
-                // A fresh tab opened with /select may already have its selection; don't scroll it back to the top.
-                SelectItems(tab.SelectedItems, scroll: true);
-            }
-            else ListScrollViewer?.ScrollToVerticalOffset(tab.SavedScrollOffset);
-        });
-    }
-
-    private void OnTabPropertyChanged(object? sender, PropertyChangedEventArgs e)
-    {
-        if (sender != Tab) return;
-        var tab = Tab!;
         switch (e.PropertyName)
         {
-            case nameof(TabViewModel.ViewMode) or nameof(TabViewModel.GroupBy):
-                ApplyViewMode(tab.ViewMode);
+            case nameof(MainViewModel.Progress):
+                var progress = ViewModel.Progress;
+                TaskbarItemInfo.ProgressState = progress is null ? TaskbarItemProgressState.None : TaskbarItemProgressState.Normal;
+                TaskbarItemInfo.ProgressValue = progress ?? 0;
                 break;
-            case nameof(TabViewModel.SortColumn) or nameof(TabViewModel.SortAscending) or nameof(TabViewModel.SortKey):
-                UpdateSortGlyphs(tab);
+            case nameof(MainViewModel.CurrentTab):
+                ShowTabInPane(_left, ViewModel.CurrentTab);
                 break;
-            case nameof(TabViewModel.Columns):
-                // May come from a header drag, while the column collection is still raising its own events.
-                Dispatcher.BeginInvoke(DispatcherPriority.Background, () => { if (Tab == tab) RebuildColumns(tab); });
+            case nameof(MainViewModel.RightTab):
+                ShowTabInPane(_right, ViewModel.RightTab);
+                ApplyDualLayout();
+                break;
+            case nameof(MainViewModel.IsRightActive):
+                UpdateActivePane();
+                break;
+            case nameof(MainViewModel.SelectedTab):
+                if (_quickLook is { } ql && ql.Tab != Tab) CloseQuickLook();
+                UpdateActivePane();
                 break;
         }
     }
 
     /// <summary>Swaps the list's layout: GridView with columns for Details, a wrap or stack panel with templates otherwise.</summary>
-    private void ApplyViewMode(ViewMode mode)
+    private void ApplyViewMode(FilePane pane, ViewMode mode)
     {
-        var grouped = Tab?.GroupBy is not null;
-        if (_appliedMode == mode && _appliedGrouped == grouped) return;
-        var keep = FileList.SelectedItem;
-        _appliedMode = mode;
-        _appliedGrouped = grouped;
-        ApplyGrouping(Tab, mode);
+        var list = pane.List;
+        var grouped = pane.Tab?.GroupBy is not null;
+        if (pane.AppliedMode == mode && pane.AppliedGrouped == grouped) return;
+        var keep = list.SelectedItem;
+        pane.AppliedMode = mode;
+        pane.AppliedGrouped = grouped;
+        ApplyGrouping(pane, mode);
         if (mode == ViewMode.Details)
         {
-            FileList.ItemTemplate = null;
-            FileList.ItemContainerStyle = (Style)FindResource("FileRowStyle");
-            FileList.ItemsPanel = (ItemsPanelTemplate)FindResource("DetailsPanel");
-            VirtualizingPanel.SetVirtualizationMode(FileList, VirtualizationMode.Recycling);
-            FileList.Style = (Style)FindResource("FileListStyle");
-            FileList.View = _detailsView;
+            list.ItemTemplate = null;
+            list.ItemContainerStyle = (Style)FindResource("FileRowStyle");
+            list.ItemsPanel = (ItemsPanelTemplate)FindResource("DetailsPanel");
+            VirtualizingPanel.SetVirtualizationMode(list, VirtualizationMode.Recycling);
+            list.Style = (Style)FindResource("FileListStyle");
+            list.View = pane.DetailsView;
         }
         else
         {
-            FileList.View = null;
-            FileList.Style = (Style)FindResource("IconListStyle");
-            VirtualizingPanel.SetVirtualizationMode(FileList, VirtualizationMode.Standard);
-            FileList.ItemContainerStyle = (Style)FindResource("IconItemStyle");
-            FileList.ItemsPanel = (grouped ? GroupedItemsPanel(mode) : null) ?? (ItemsPanelTemplate)FindResource(mode + "Panel");
-            FileList.ItemTemplate = (DataTemplate)FindResource(mode switch
+            list.View = null;
+            list.Style = (Style)FindResource("IconListStyle");
+            VirtualizingPanel.SetVirtualizationMode(list, VirtualizationMode.Standard);
+            list.ItemContainerStyle = (Style)FindResource("IconItemStyle");
+            list.ItemsPanel = (grouped ? GroupedItemsPanel(mode) : null) ?? (ItemsPanelTemplate)FindResource(mode + "Panel");
+            list.ItemTemplate = (DataTemplate)FindResource(mode switch
             {
                 ViewMode.SmallIcons or ViewMode.List => "SmallIconTemplate",
                 ViewMode.Tiles => "TileTemplate",
                 ViewMode.Content => "ContentTemplate",
                 _ => "IconTemplate",
             });
-            ScrollViewer.SetHorizontalScrollBarVisibility(FileList, mode == ViewMode.List && !grouped ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled);
+            ScrollViewer.SetHorizontalScrollBarVisibility(list, mode == ViewMode.List && !grouped ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled);
         }
-        ViewDetailsButton.IsChecked = mode == ViewMode.Details;
-        ViewIconsButton.IsChecked = mode == ViewMode.LargeIcons;
-        if (keep is not null) Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => FileList.ScrollIntoView(keep));
+        if (ReferenceEquals(pane, _active))
+        {
+            ViewDetailsButton.IsChecked = mode == ViewMode.Details;
+            ViewIconsButton.IsChecked = mode == ViewMode.LargeIcons;
+        }
+        if (keep is not null) Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => list.ScrollIntoView(keep));
     }
 
     private static readonly ViewMode[] ZoomOrder =
@@ -288,6 +271,7 @@ public partial class MainWindow : Window
     {
         if (Keyboard.Modifiers != ModifierKeys.Control) return;
         e.Handled = true;
+        ViewModel.ActivatePane(PaneOf(sender).IsRight); // zoom the pane under the pointer
         Zoom(e.Delta > 0 ? 1 : -1);
     }
 
@@ -480,6 +464,9 @@ public partial class MainWindow : Window
         var details = MenuCheck("Details pane", pane.IsDetails, () => pane.Toggle(PaneMode.Details));
         details.InputGestureText = "Alt+Shift+P";
         menu.Items.Add(details);
+        var dual = MenuCheck("Dual pane", ViewModel.IsDualPane, async () => await ToggleDualPaneAsync());
+        dual.InputGestureText = "Ctrl+\\";
+        menu.Items.Add(dual);
         var show = new MenuItem { Header = "Show" };
         show.Items.Add(MenuCheck("Item check boxes", ViewModel.ShowCheckboxes, () => ViewModel.ShowCheckboxes = !ViewModel.ShowCheckboxes));
         show.Items.Add(MenuCheck("File name extensions", ViewModel.ShowFileExtensions, () => ViewModel.ShowFileExtensions = !ViewModel.ShowFileExtensions));
@@ -509,6 +496,14 @@ public partial class MainWindow : Window
         menu.Items.Add(MenuEntry("Select none", null, () => FileList.UnselectAll(), ""));
         menu.Items.Add(MenuEntry("Invert selection", null, InvertSelection, null));
         menu.Items.Add(new Separator());
+        var batch = MenuEntry("Rename selected items…", FileList.SelectedItems.Count > 1 ? "F2" : "Ctrl+Shift+F2", () => ShowBatchRename(Selection), "");
+        batch.IsEnabled = FileList.SelectedItems.Count > 0;
+        menu.Items.Add(batch);
+        var look = MenuEntry("Quick Look", "Space", ToggleQuickLook, "");
+        look.IsEnabled = FileList.SelectedItems.Count > 0;
+        menu.Items.Add(look);
+        menu.Items.Add(MenuEntry("Command palette", "Ctrl+K", ShowPalette, ""));
+        menu.Items.Add(new Separator());
         menu.Items.Add(MenuEntry("Open terminal as administrator", null, async () => await ViewModel.OpenTerminalAsync(elevated: true), ""));
         menu.Items.Add(MenuEntry("Open in new window", "Ctrl+N", NewWindowHere, null));
         menu.Items.Add(new Separator());
@@ -517,6 +512,7 @@ public partial class MainWindow : Window
         menu.Items.Add(MenuEntry("Empty Recycle Bin", null, ViewModel.EmptyRecycleBin, "\uE74D"));
         menu.Items.Add(new Separator());
         menu.Items.Add(MenuEntry("Settings", "Ctrl+,", ShowSettings, "\uE713"));
+        menu.Items.Add(MenuEntry("Exit", null, App.ExitAll, null));
         menu.IsOpen = true;
     }
 
@@ -567,42 +563,44 @@ public partial class MainWindow : Window
 
     private void OnSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_syncingSelection || Tab is not { } tab) return;
-        tab.SelectedItems = Selection;
+        if (_syncingSelection || sender is not ListView list || PaneOf(list).Tab is not { } tab) return;
+        tab.SelectedItems = list.SelectedItems.Cast<ItemViewModel>().ToList();
     }
 
-    private void OnSelectionRequested(IReadOnlyList<ItemViewModel> items) => SelectItems(items, scroll: true);
-
-    private void OnScrollToTopRequested()
+    private void ScrollToTop(FilePane pane)
     {
         // A focused, recycled row would otherwise drag the viewport to wherever its new item landed.
-        ListScrollViewer?.ScrollToVerticalOffset(0);
+        ScrollViewerOf(pane.List)?.ScrollToVerticalOffset(0);
         Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
         {
-            if (FileList.SelectedItems.Count == 0) ListScrollViewer?.ScrollToVerticalOffset(0);
+            if (pane.List.SelectedItems.Count == 0) ScrollViewerOf(pane.List)?.ScrollToVerticalOffset(0);
         });
     }
 
-    private void SelectItems(IReadOnlyList<ItemViewModel> items, bool scroll)
+    private void SelectItems(IReadOnlyList<ItemViewModel> items, bool scroll) => SelectItems(_active, items, scroll);
+
+    private void SelectItems(FilePane pane, IReadOnlyList<ItemViewModel> items, bool scroll)
     {
-        var present = items.Count > 50 ? FileList.Items.Cast<ItemViewModel>().ToHashSet() : null;
+        var list = pane.List;
+        var present = items.Count > 50 ? list.Items.Cast<ItemViewModel>().ToHashSet() : null;
         _syncingSelection = true;
         try
         {
-            FileList.UnselectAll();
+            list.UnselectAll();
             foreach (var i in items)
-                if (present?.Contains(i) ?? FileList.Items.Contains(i)) FileList.SelectedItems.Add(i);
+                if (present?.Contains(i) ?? list.Items.Contains(i)) list.SelectedItems.Add(i);
         }
         finally { _syncingSelection = false; }
-        if (Tab is { } tab) tab.SelectedItems = Selection;
+        if (pane.Tab is { } tab) tab.SelectedItems = list.SelectedItems.Cast<ItemViewModel>().ToList();
 
-        if (FileList.SelectedItem is { } first)
+        if (list.SelectedItem is { } first)
         {
-            if (scroll) FileList.ScrollIntoView(first);
-            if (!Address.IsEditing && !FilterBox.IsKeyboardFocusWithin)
+            if (scroll) list.ScrollIntoView(first);
+            // Only the active pane takes focus; the other one just shows its selection.
+            if (ReferenceEquals(pane, _active) && !Address.IsEditing && !FilterBox.IsKeyboardFocusWithin)
                 Dispatcher.BeginInvoke(DispatcherPriority.Background, () =>
                 {
-                    if (FileList.ItemContainerGenerator.ContainerFromItem(first) is ListViewItem c) c.Focus();
+                    if (ReferenceEquals(pane, _active) && list.ItemContainerGenerator.ContainerFromItem(first) is ListViewItem c) c.Focus();
                 });
         }
     }
@@ -652,12 +650,12 @@ public partial class MainWindow : Window
     {
         if (e.OriginalSource is not GridViewColumnHeader { Tag: string tag, Role: not GridViewColumnHeaderRole.Padding } || Tab is not { } tab) return;
         tab.SortBy(tag);
-        UpdateSortGlyphs(tab);
+        UpdateSortGlyphs(_active, tab);
     }
 
-    private void UpdateSortGlyphs(TabViewModel tab)
+    private void UpdateSortGlyphs(FilePane pane, TabViewModel tab)
     {
-        if (FileList.View is not GridView grid) return;
+        if (pane.List.View is not GridView grid) return;
         foreach (var col in grid.Columns)
         {
             if (col.Header is not GridViewColumnHeader { Tag: string tag } header) continue;
@@ -680,14 +678,17 @@ public partial class MainWindow : Window
                 e.Handled = true;
                 await tab.GoBackAsync();
                 break;
+            case Key.Space when mods == ModifierKeys.None && !IsTypingAhead:
+                // Quick Look, as on macOS. Ctrl+Space still toggles the focused item's selection.
+                e.Handled = true;
+                ToggleQuickLook();
+                break;
             case Key.Left or Key.Right or Key.Up or Key.Down when (mods & ModifierKeys.Alt) == 0 && FindDescendant<VirtualizingWrapPanel>(FileList) is { } panel:
                 e.Handled = true;
                 MoveInGrid(panel, e.Key, mods);
                 break;
         }
     }
-
-    private int _anchorIndex = -1;
 
     /// <summary>Arrow keys in icon/list/tile layouts move by cell (rows and columns), with Shift and Ctrl as in Explorer.</summary>
     private void MoveInGrid(VirtualizingWrapPanel panel, Key key, ModifierKeys mods)
@@ -708,14 +709,14 @@ public partial class MainWindow : Window
         var item = FileList.Items[target];
         if (mods.HasFlag(ModifierKeys.Shift))
         {
-            if (_anchorIndex < 0 || _anchorIndex >= count) _anchorIndex = Math.Max(0, current);
+            if (_active.AnchorIndex < 0 || _active.AnchorIndex >= count) _active.AnchorIndex = Math.Max(0, current);
             if (!mods.HasFlag(ModifierKeys.Control)) FileList.UnselectAll();
-            for (var i = Math.Min(_anchorIndex, target); i <= Math.Max(_anchorIndex, target); i++) FileList.SelectedItems.Add(FileList.Items[i]);
+            for (var i = Math.Min(_active.AnchorIndex, target); i <= Math.Max(_active.AnchorIndex, target); i++) FileList.SelectedItems.Add(FileList.Items[i]);
         }
         else if (!mods.HasFlag(ModifierKeys.Control))
         {
             FileList.SelectedItem = item;
-            _anchorIndex = target;
+            _active.AnchorIndex = target;
         }
         FileList.ScrollIntoView(item);
         Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
@@ -729,6 +730,13 @@ public partial class MainWindow : Window
     private void BeginRenameSelected()
     {
         if (FileList.SelectedItem is ItemViewModel item) BeginRename(item);
+    }
+
+    private void BeginRename(FilePane pane, ItemViewModel item)
+    {
+        // New folder / New ▸ in a pane renames there; that pane becomes the active one.
+        if (!ReferenceEquals(pane, _active)) ViewModel.ActivatePane(pane.IsRight);
+        BeginRename(item);
     }
 
     private void BeginRename(ItemViewModel item)
@@ -827,6 +835,10 @@ public partial class MainWindow : Window
     private const int CmdOpenLocation = ShellContextMenu.FirstCustomId + 8;
     private const int CmdRemoveRecent = ShellContextMenu.FirstCustomId + 9;
     private const int CmdExtract = ShellContextMenu.FirstCustomId + 10;
+    private const int CmdBatchRename = ShellContextMenu.FirstCustomId + 11;
+    private const int CmdCopyToOther = ShellContextMenu.FirstCustomId + 12;
+    private const int CmdMoveToOther = ShellContextMenu.FirstCustomId + 13;
+    private const int CmdOpenInOther = ShellContextMenu.FirstCustomId + 14;
     private const int CmdCompressBase = ShellContextMenu.FirstCustomId + 20; // + (int)ArchiveFormat
     private const int CmdChoiceLimit = 50;
     private const int CmdSortBase = ShellContextMenu.FirstCustomId + 100;
@@ -891,6 +903,12 @@ public partial class MainWindow : Window
         {
             custom.Add(new CustomMenuItem { Text = "Open in new tab", Id = CmdOpenNewTab });
             custom.Add(new CustomMenuItem { Text = "Open in new window", Id = CmdOpenNewWindow });
+            if (browsable.Count == 1) custom.Add(new CustomMenuItem { Text = "Open in other pane", Id = CmdOpenInOther });
+        }
+        if (ViewModel.OtherPane?.Location is { IsFileSystemFolder: true } && items.All(i => i.Entry.Path is not null))
+        {
+            custom.Add(new CustomMenuItem { Text = "Copy to other pane\tAlt+F5", Id = CmdCopyToOther });
+            custom.Add(new CustomMenuItem { Text = "Move to other pane\tAlt+F6", Id = CmdMoveToOther });
         }
         if (items.Count == 1 && items[0] is { IsFolder: true, Entry.Path: { } folderPath })
         {
@@ -932,6 +950,15 @@ public partial class MainWindow : Window
             case MenuResultKind.Custom when result.CustomId == CmdExtract:
                 await ViewModel.ExtractAsync(items);
                 break;
+            case MenuResultKind.Custom when result.CustomId == CmdBatchRename:
+                ShowBatchRename(items);
+                break;
+            case MenuResultKind.Custom when result.CustomId is CmdCopyToOther or CmdMoveToOther:
+                await ViewModel.TransferToOtherPaneAsync(items, move: result.CustomId == CmdMoveToOther);
+                break;
+            case MenuResultKind.Custom when result.CustomId == CmdOpenInOther:
+                await OpenInOtherPaneAsync(items[0]);
+                break;
             case MenuResultKind.Custom when result.CustomId >= CmdCompressBase && result.CustomId <= CmdCompressBase + (int)ArchiveFormat.TarGz:
                 await ViewModel.CompressAsync(items, (ArchiveFormat)(result.CustomId - CmdCompressBase));
                 break;
@@ -945,6 +972,13 @@ public partial class MainWindow : Window
                 }
                 break;
         }
+    }
+
+    private async Task OpenInOtherPaneAsync(ItemViewModel item)
+    {
+        var e = item.Entry;
+        var location = e.Path is not null ? await ShellLocation.ResolveAsync(e.Path) : await ShellLocation.FromPidlAsync(await e.GetPidlAsync());
+        if (location is { IsFolder: true }) await ViewModel.OpenInOtherPaneAsync(location);
     }
 
     private void AddM3Entries(List<CustomMenuItem> custom, IReadOnlyList<ItemViewModel> items)
@@ -969,6 +1003,7 @@ public partial class MainWindow : Window
             });
             if (paths.All(Archives.IsExtractable))
                 custom.Add(new CustomMenuItem { Text = paths.Count == 1 ? "Extract here" : "Extract each here", Id = CmdExtract });
+            if (paths.Count > 1) custom.Add(new CustomMenuItem { Text = $"Rename {paths.Count} items…\tF2", Id = CmdBatchRename });
         }
     }
 
@@ -1234,7 +1269,7 @@ public partial class MainWindow : Window
                 e.Handled = true; await ViewModel.ReopenClosedTabAsync(); return;
             case Key.W when mods == ModifierKeys.Control:
             case Key.F4 when mods == ModifierKeys.Control:
-                e.Handled = true; if (tab is not null) CloseTab(tab); return;
+                e.Handled = true; if (ViewModel.CurrentTab is { } current) CloseTab(current); return;
             case Key.Tab when mods == ModifierKeys.Control:
                 e.Handled = true; ViewModel.SelectTabRelative(1); return;
             case Key.Tab when mods == (ModifierKeys.Control | ModifierKeys.Shift):
@@ -1253,6 +1288,8 @@ public partial class MainWindow : Window
                 e.Handled = true; if (tab is not null) await tab.RefreshAsync(); return;
             case Key.F11 when mods == ModifierKeys.None:
                 e.Handled = true; ToggleFullScreen(); return;
+            case Key.Oem5 or Key.OemBackslash when mods == ModifierKeys.Control:
+                e.Handled = true; await ToggleDualPaneAsync(); return;
             case Key.P when mods == ModifierKeys.Alt:
                 e.Handled = true; ViewModel.Pane.Toggle(PaneMode.Preview); return;
             case Key.P when mods == (ModifierKeys.Alt | ModifierKeys.Shift):
@@ -1261,6 +1298,12 @@ public partial class MainWindow : Window
                 e.Handled = true; ShowSettings(); return;
             case Key.F6 when mods is ModifierKeys.None or ModifierKeys.Shift:
                 e.Handled = true; CycleFocus(mods == ModifierKeys.Shift ? -1 : 1); return;
+            case Key.K when mods == ModifierKeys.Control:
+            case Key.P when mods == (ModifierKeys.Control | ModifierKeys.Shift):
+                // Ctrl+K first: some tools swallow Ctrl+Shift+P system-wide (seen on the dev machine).
+                e.Handled = true; ShowPalette(); return;
+            case Key.Escape when mods == ModifierKeys.None && _quickLook is not null:
+                e.Handled = true; CloseQuickLook(); return;
         }
 
         if (inText) return;
@@ -1285,6 +1328,10 @@ public partial class MainWindow : Window
                 e.Handled = true; ViewModel.CopyPaths(Selection); break;
             case Key.Delete when mods is ModifierKeys.None or ModifierKeys.Shift:
                 e.Handled = true; await ViewModel.DeleteAsync(Selection, permanent: mods == ModifierKeys.Shift); break;
+            case Key.F2 when mods == ModifierKeys.None && FileList.SelectedItems.Count > 1:
+            case Key.F2 when mods == (ModifierKeys.Control | ModifierKeys.Shift):
+                // Several items: the batch rename window instead of Explorer's "name (1), name (2) …".
+                e.Handled = true; ShowBatchRename(Selection); break;
             case Key.F2 when mods == ModifierKeys.None:
                 e.Handled = true; BeginRenameSelected(); break;
             case Key.Enter when mods == ModifierKeys.Alt:
@@ -1300,6 +1347,13 @@ public partial class MainWindow : Window
             case Key.D when mods == ModifierKeys.Control:
                 // Explorer uses Ctrl+D for Delete; here it stars (PLAN.md), and Delete stays on the Delete key.
                 e.Handled = true; ViewModel.ToggleStar(Selection); break;
+            case Key.Tab when mods == ModifierKeys.None && ViewModel.IsDualPane && !Sidebar.IsKeyboardFocusWithin:
+                // Two-pane file managers' Tab: also when focus fell off the list (its focused row was deleted).
+                e.Handled = true; SwitchPane(); break;
+            case Key.F5 when mods == ModifierKeys.Alt:
+                e.Handled = true; await ViewModel.TransferToOtherPaneAsync(Selection, move: false); break;
+            case Key.F6 when mods == ModifierKeys.Alt:
+                e.Handled = true; await ViewModel.TransferToOtherPaneAsync(Selection, move: true); break;
             case Key.Escape when mods == ModifierKeys.None && ViewModel.IsArchiveBusy:
                 e.Handled = true; ViewModel.CancelArchive(); break;
         }

@@ -11,10 +11,6 @@ namespace ExplorerPlus.App.Views;
 
 public partial class MainWindow
 {
-    private readonly Dictionary<string, GridViewColumn> _columnCache = new(StringComparer.OrdinalIgnoreCase);
-    private bool _buildingColumns;
-    private bool? _appliedGrouped;
-
     // Cell sizes for icon layouts when grouped (each group wraps its own items); must match the panel templates.
     private static readonly Dictionary<ViewMode, Size> GroupedCells = new()
     {
@@ -26,20 +22,20 @@ public partial class MainWindow
         [ViewMode.Tiles] = new(300, 76),
     };
 
-    private void InitColumns()
+    private void InitColumns(FilePane pane)
     {
-        foreach (var col in _detailsView.Columns)
+        foreach (var col in pane.DetailsView.Columns)
         {
             if (col.Header is not GridViewColumnHeader { Tag: string id }) continue;
-            _columnCache[id] = col;
-            ((INotifyPropertyChanged)col).PropertyChanged += OnColumnPropertyChanged;
+            pane.ColumnCache[id] = col;
+            ((INotifyPropertyChanged)col).PropertyChanged += (s, e) => OnColumnPropertyChanged(pane, s, e);
         }
-        _detailsView.Columns.CollectionChanged += OnColumnsCollectionChanged;
+        pane.DetailsView.Columns.CollectionChanged += (s, e) => OnColumnsCollectionChanged(pane, e);
     }
 
-    private GridViewColumn ColumnFor(string id)
+    private GridViewColumn ColumnFor(FilePane pane, string id)
     {
-        if (_columnCache.TryGetValue(id, out var cached)) return cached;
+        if (pane.ColumnCache.TryGetValue(id, out var cached)) return cached;
         var def = ColumnCatalog.Get(id)!;
         var header = new GridViewColumnHeader
         {
@@ -56,47 +52,47 @@ public partial class MainWindow
             text.SetValue(MarginProperty, new Thickness(0, 0, 8, 0));
         }
         var col = new GridViewColumn { Header = header, Width = def.Width, CellTemplate = new DataTemplate { VisualTree = text } };
-        ((INotifyPropertyChanged)col).PropertyChanged += OnColumnPropertyChanged;
-        _columnCache[id] = col;
+        ((INotifyPropertyChanged)col).PropertyChanged += (s, e) => OnColumnPropertyChanged(pane, s, e);
+        pane.ColumnCache[id] = col;
         return col;
     }
 
     private static string? IdOf(GridViewColumn col) => (col.Header as GridViewColumnHeader)?.Tag as string;
 
-    private IEnumerable<string> ShownColumnIds() => _detailsView.Columns.Select(IdOf).OfType<string>();
+    private static IEnumerable<string> ShownColumnIds(FilePane pane) => pane.DetailsView.Columns.Select(IdOf).OfType<string>();
 
-    private void RebuildColumns(TabViewModel tab)
+    private void RebuildColumns(FilePane pane, TabViewModel tab)
     {
-        _buildingColumns = true;
+        pane.BuildingColumns = true;
         try
         {
-            var cols = _detailsView.Columns;
-            if (!ShownColumnIds().SequenceEqual(tab.Columns, StringComparer.OrdinalIgnoreCase))
+            var cols = pane.DetailsView.Columns;
+            if (!ShownColumnIds(pane).SequenceEqual(tab.Columns, StringComparer.OrdinalIgnoreCase))
             {
                 cols.Clear();
-                foreach (var id in tab.Columns) cols.Add(ColumnFor(id));
+                foreach (var id in tab.Columns) cols.Add(ColumnFor(pane, id));
             }
             foreach (var col in cols)
                 if (IdOf(col) is { } id) col.Width = tab.ColumnWidth(id);
         }
-        finally { _buildingColumns = false; }
-        UpdateSortGlyphs(tab);
+        finally { pane.BuildingColumns = false; }
+        UpdateSortGlyphs(pane, tab);
     }
 
-    private void OnColumnPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    private static void OnColumnPropertyChanged(FilePane pane, object? sender, PropertyChangedEventArgs e)
     {
-        if (_buildingColumns || e.PropertyName != nameof(GridViewColumn.Width) || Tab is not { } tab) return;
+        if (pane.BuildingColumns || e.PropertyName != nameof(GridViewColumn.Width) || pane.Tab is not { } tab) return;
         if (sender is not GridViewColumn col || IdOf(col) is not { } id || double.IsNaN(col.Width)) return;
-        if (!_detailsView.Columns.Contains(col)) return;
+        if (!pane.DetailsView.Columns.Contains(col)) return;
         tab.SetColumnWidth(id, col.Width);
     }
 
-    private void OnColumnsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    private void OnColumnsCollectionChanged(FilePane pane, NotifyCollectionChangedEventArgs e)
     {
         // The user dragged a header to a new place.
-        if (_buildingColumns || e.Action != NotifyCollectionChangedAction.Move || Tab is not { } tab) return;
-        var order = ShownColumnIds().ToList();
-        Dispatcher.BeginInvoke(DispatcherPriority.Background, () => { if (Tab == tab) tab.SetColumns(order); });
+        if (pane.BuildingColumns || e.Action != NotifyCollectionChangedAction.Move || pane.Tab is not { } tab) return;
+        var order = ShownColumnIds(pane).ToList();
+        Dispatcher.BeginInvoke(DispatcherPriority.Background, () => { if (pane.Tab == tab) tab.SetColumns(order); });
     }
 
     private void SizeColumnToFit(GridViewColumn col)
@@ -122,7 +118,7 @@ public partial class MainWindow
 
         if (header.Column is { } clicked)
             menu.Items.Add(MenuEntry("Size column to fit", null, () => SizeColumnToFit(clicked), null));
-        menu.Items.Add(MenuEntry("Size all columns to fit", null, () => { foreach (var c in _detailsView.Columns) SizeColumnToFit(c); }, null));
+        menu.Items.Add(MenuEntry("Size all columns to fit", null, () => { foreach (var c in _active.DetailsView.Columns) SizeColumnToFit(c); }, null));
         menu.Items.Add(new Separator());
 
         MenuItem Toggle(ColumnDef def)
@@ -172,17 +168,18 @@ public partial class MainWindow
     }
 
     /// <summary>Turns grouping on the list on or off to match the tab, with a group panel suited to the layout.</summary>
-    private void ApplyGrouping(TabViewModel? tab, ViewMode mode)
+    private void ApplyGrouping(FilePane pane, ViewMode mode)
     {
-        var grouped = tab?.GroupBy is not null;
-        var groups = FileList.Items.GroupDescriptions;
+        var list = pane.List;
+        var grouped = pane.Tab?.GroupBy is not null;
+        var groups = list.Items.GroupDescriptions;
         groups.Clear();
-        FileList.GroupStyle.Clear();
-        VirtualizingPanel.SetScrollUnit(FileList, grouped ? ScrollUnit.Pixel : ScrollUnit.Item);
+        list.GroupStyle.Clear();
+        VirtualizingPanel.SetScrollUnit(list, grouped ? ScrollUnit.Pixel : ScrollUnit.Item);
         if (!grouped) return;
 
         // When grouping, GroupStyle.Panel stacks the groups and ItemsPanel lays out the items inside each group.
-        FileList.GroupStyle.Add(new GroupStyle { ContainerStyle = (Style)FindResource("GroupContainerStyle"), Panel = GroupsPanel });
+        list.GroupStyle.Add(new GroupStyle { ContainerStyle = (Style)FindResource("GroupContainerStyle"), Panel = GroupsPanel });
         groups.Add(new PropertyGroupDescription(nameof(ItemViewModel.GroupKey)));
     }
 

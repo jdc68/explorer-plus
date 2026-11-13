@@ -33,6 +33,8 @@ public partial class SettingsWindow : Window
     private void OnForgetViewsClick(object sender, RoutedEventArgs e) => Vm.ForgetFolderViews();
     private void OnRestoreMenuDefaultsClick(object sender, RoutedEventArgs e) => Vm.RestoreDefaultMenuFilter();
     private void OnMakeDefaultClick(object sender, RoutedEventArgs e) => Vm.MakeDefault();
+    private async void OnInstallIndexClick(object sender, RoutedEventArgs e) => await Vm.InstallIndexAsync();
+    private async void OnRemoveIndexClick(object sender, RoutedEventArgs e) => await Vm.RemoveIndexAsync();
     private void OnRestoreExplorerClick(object sender, RoutedEventArgs e) => Vm.RestoreExplorer();
     private void OnClearRecentClick(object sender, RoutedEventArgs e) => Vm.ClearRecentFolders();
     private void OnOpenDataFolderClick(object sender, RoutedEventArgs e) => Vm.OpenDataFolder();

@@ -7,6 +7,7 @@ using ExplorerPlus.App.Infrastructure;
 using ExplorerPlus.App.Services;
 using ExplorerPlus.Core.Navigation;
 using ExplorerPlus.Core.Shell;
+using ExplorerPlus.Interop;
 
 namespace ExplorerPlus.App.ViewModels;
 
@@ -16,7 +17,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 {
     private readonly Func<IntPtr> _hwnd;
     private readonly Stack<string> _closedTabs = new();
-    private TabViewModel? _selectedTab;
+    private TabViewModel? _currentTab;
+    private TabViewModel? _activeTab;
+    private bool _rightActive;
     private string? _notice;
     private CancellationTokenSource? _noticeCts;
 
@@ -32,19 +35,129 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public SidebarViewModel Sidebar { get; }
     public PaneViewModel Pane { get; } = new();
 
+    /// <summary>The tab picked in the tab strip. When it is split, its right pane is <see cref="RightTab"/>.</summary>
+    public TabViewModel? CurrentTab
+    {
+        get => _currentTab;
+        set => Select(value);
+    }
+
+    /// <summary>The right pane of the current tab (dual pane), or null.</summary>
+    public TabViewModel? RightTab => _currentTab?.Partner;
+
+    public bool IsDualPane => RightTab is not null;
+
+    public bool IsRightActive => _rightActive && RightTab is not null;
+
+    /// <summary>
+    /// The view the commands act on: the current tab, or its right pane when that one is active. Setting a tab from
+    /// the strip selects it; setting a right pane selects its tab and activates that pane.
+    /// </summary>
     public TabViewModel? SelectedTab
     {
-        get => _selectedTab;
-        set
+        get => IsRightActive ? RightTab : _currentTab;
+        set => Select(value);
+    }
+
+    /// <summary>The pane that isn't active, when the tab is split.</summary>
+    public TabViewModel? OtherPane => IsDualPane ? (IsRightActive ? _currentTab : RightTab) : null;
+
+    /// <summary>The tab-strip tab a view belongs to (itself, or the tab whose right pane it is).</summary>
+    public TabViewModel? StripTabOf(TabViewModel? view) =>
+        view is null ? null : Tabs.Contains(view) ? view : Tabs.FirstOrDefault(t => t.Partner == view);
+
+    private void Select(TabViewModel? value)
+    {
+        if (value is not null && !Tabs.Contains(value) && StripTabOf(value) is { } owner)
         {
-            var old = _selectedTab;
-            if (!Set(ref _selectedTab, value)) return;
-            if (old is not null) old.PropertyChanged -= OnTabPropertyChanged;
-            if (value is not null) value.PropertyChanged += OnTabPropertyChanged;
-            OnPropertyChanged(nameof(WindowTitle));
-            Sidebar.SyncSelection(value?.Location);
-            Pane.Attach(value);
+            SetCurrent(owner);
+            _rightActive = true;
         }
+        else SetCurrent(value); // a split tab keeps whichever side was active
+        RefreshActive();
+    }
+
+    private void SetCurrent(TabViewModel? tab)
+    {
+        if (ReferenceEquals(_currentTab, tab)) return;
+        if (_currentTab is not null) _currentTab.PropertyChanged -= OnCurrentTabPropertyChanged;
+        _currentTab = tab;
+        if (tab is not null) tab.PropertyChanged += OnCurrentTabPropertyChanged;
+        OnPropertyChanged(nameof(CurrentTab));
+        OnPropertyChanged(nameof(RightTab));
+        OnPropertyChanged(nameof(IsDualPane));
+    }
+
+    private void OnCurrentTabPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(TabViewModel.Partner)) return;
+        OnPropertyChanged(nameof(RightTab));
+        OnPropertyChanged(nameof(IsDualPane));
+        RefreshActive();
+    }
+
+    private void RefreshActive()
+    {
+        var active = SelectedTab;
+        if (ReferenceEquals(active, _activeTab))
+        {
+            OnPropertyChanged(nameof(IsRightActive));
+            return;
+        }
+        if (_activeTab is not null) _activeTab.PropertyChanged -= OnTabPropertyChanged;
+        _activeTab = active;
+        if (active is not null) active.PropertyChanged += OnTabPropertyChanged;
+        OnPropertyChanged(nameof(IsRightActive));
+        OnPropertyChanged(nameof(SelectedTab));
+        OnPropertyChanged(nameof(WindowTitle));
+        Sidebar.SyncSelection(active?.Location);
+        Pane.Attach(active);
+    }
+
+    /// <summary>Makes the left or the right pane the one commands act on (a click or focus in it).</summary>
+    public void ActivatePane(bool right)
+    {
+        if (right && RightTab is null) return;
+        if (_rightActive == right && ReferenceEquals(SelectedTab, _activeTab)) return;
+        _rightActive = right;
+        RefreshActive();
+    }
+
+    /// <summary>Ctrl+\: splits the current tab in two panes (the new one shows the same folder), or closes the right pane.</summary>
+    public async Task ToggleDualPaneAsync()
+    {
+        if (_currentTab is not { } tab) return;
+        if (tab.Partner is { } partner)
+        {
+            _rightActive = false;
+            tab.Partner = null;
+            Unsubscribe(partner);
+            partner.Dispose();
+            RefreshActive();
+            return;
+        }
+        var right = new TabViewModel();
+        Subscribe(right);
+        tab.Partner = right;
+        _rightActive = true;
+        RefreshActive();
+        var start = tab.Location ?? await ShellLocation.ResolveAsync(AppSettings.Current.StartLocation);
+        if (start is not null) await right.NavigateAsync(start);
+    }
+
+    /// <summary>Opens a folder in the pane that isn't active, splitting the tab first if needed.</summary>
+    public async Task OpenInOtherPaneAsync(ShellLocation location)
+    {
+        if (OtherPane is { } other)
+        {
+            await other.NavigateAsync(location);
+            return;
+        }
+        if (_currentTab is not { } tab) return;
+        var right = new TabViewModel();
+        Subscribe(right);
+        tab.Partner = right; // the left pane stays active
+        await right.NavigateAsync(location);
     }
 
     public bool CanCloseTab => Tabs.Count > 1;
@@ -113,7 +226,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(ShowProtectedOsFiles));
         OnPropertyChanged(nameof(ShowCheckboxes));
         OnPropertyChanged(nameof(ShowFolderSizes));
-        foreach (var t in Tabs) t.OnSettingsChanged();
+        foreach (var t in Tabs)
+        {
+            t.OnSettingsChanged();
+            t.Partner?.OnSettingsChanged();
+        }
     }
 
     private IntPtr Hwnd => _hwnd();
@@ -136,7 +253,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         var tab = new TabViewModel();
         Subscribe(tab);
         if (index is { } i && i >= 0 && i <= Tabs.Count) Tabs.Insert(i, tab); else Tabs.Add(tab);
-        if (activate || SelectedTab is null) SelectedTab = tab;
+        if (activate || CurrentTab is null) CurrentTab = tab;
         await tab.NavigateAsync(location, selectPath: selectPath);
         return tab;
     }
@@ -145,12 +262,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         tab.Notice += ShowNotice;
         tab.PropertyChanged += OnAnyTabPropertyChanged;
+        if (tab.Partner is { } right) Subscribe(right);
     }
 
     private void Unsubscribe(TabViewModel tab)
     {
         tab.Notice -= ShowNotice;
         tab.PropertyChanged -= OnAnyTabPropertyChanged;
+        if (tab.Partner is { } right) Unsubscribe(right);
     }
 
     private static void OnAnyTabPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -164,10 +283,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         var index = Tabs.IndexOf(tab);
         if (index < 0) return;
         // Removing the selected tab makes the tab strip clear the selection through its binding first.
-        var wasSelected = SelectedTab == tab;
+        var wasSelected = CurrentTab == tab;
         Unsubscribe(tab);
         Tabs.Remove(tab);
-        if (wasSelected || SelectedTab is null) SelectedTab = Tabs.Count > 0 ? Tabs[Math.Min(index, Tabs.Count - 1)] : null;
+        if (wasSelected || CurrentTab is null) CurrentTab = Tabs.Count > 0 ? Tabs[Math.Min(index, Tabs.Count - 1)] : null;
     }
 
     /// <summary>Adds a tab that was dragged in from another window, keeping its history, view and items.</summary>
@@ -175,7 +294,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         Subscribe(tab);
         Tabs.Insert(Math.Clamp(index, 0, Tabs.Count), tab);
-        SelectedTab = tab;
+        CurrentTab = tab;
     }
 
     /// <summary>Reorders a tab inside this window (tab drag).</summary>
@@ -185,7 +304,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         index = Math.Clamp(index, 0, Tabs.Count - 1);
         if (from < 0 || from == index) return;
         Tabs.Move(from, index);
-        SelectedTab = tab;
+        CurrentTab = tab;
     }
 
     public void CloseTab(TabViewModel tab)
@@ -195,7 +314,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (tab.Location is { } l) _closedTabs.Push(l.EditText);
         Tabs.Remove(tab);
         tab.Dispose();
-        if (SelectedTab == tab || SelectedTab is null) SelectedTab = Tabs[Math.Min(index, Tabs.Count - 1)];
+        if (CurrentTab == tab || CurrentTab is null) CurrentTab = Tabs[Math.Min(index, Tabs.Count - 1)];
     }
 
     public void CloseOtherTabs(TabViewModel keep)
@@ -215,9 +334,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public void SelectTabRelative(int delta)
     {
-        if (Tabs.Count == 0 || SelectedTab is null) return;
-        var i = (Tabs.IndexOf(SelectedTab) + delta + Tabs.Count) % Tabs.Count;
-        SelectedTab = Tabs[i];
+        if (Tabs.Count == 0 || CurrentTab is null) return;
+        var i = (Tabs.IndexOf(CurrentTab) + delta + Tabs.Count) % Tabs.Count;
+        CurrentTab = Tabs[i];
     }
 
     // A search tab comes back as the folder that was searched.
@@ -247,7 +366,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         switch (target)
         {
             case OpenTarget.NewTab:
-                await OpenTabAsync(location, activate: !KeyboardShift(), index: SelectedTab is null ? null : Tabs.IndexOf(SelectedTab) + 1);
+                await OpenTabAsync(location, activate: !KeyboardShift(), index: CurrentTab is null ? null : Tabs.IndexOf(CurrentTab) + 1);
                 break;
             case OpenTarget.NewWindow:
                 App.OpenWindow(location.EditText);
@@ -389,6 +508,25 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         return result == FileOpResult.Succeeded;
     }
 
+    /// <summary>Applies a batch rename planned in the Batch rename window; one undo step reverts all of it.</summary>
+    public async Task BatchRenameAsync(IReadOnlyList<BatchRenamePlan> plan)
+    {
+        var work = plan.Where(p => p.IsChanged && p.Error is null).Select(p => (p.Path, p.NewName)).ToList();
+        if (work.Count == 0) return;
+        var tab = SelectedTab;
+        BatchRenameResult result;
+        try { result = await BatchRename.ApplyAsync(work, Hwnd); }
+        catch (Exception ex) { ShowNotice(ex.Message); return; }
+        foreach (var (now, oldName) in result.Renamed)
+            Stars.Rename(Path.Combine(Path.GetDirectoryName(now) ?? "", oldName), now);
+        if (result.Renamed.Count > 0) UndoService.Push(new BatchRenameRecord(result.Renamed));
+        ShowNotice(result.Renamed.Count == work.Count
+            ? $"Renamed {work.Count} item{(work.Count == 1 ? "" : "s")}."
+            : $"Renamed {result.Renamed.Count} of {work.Count} items.");
+        // Search results don't get change notifications.
+        if (tab is { IsSearch: true }) await tab.RefreshAsync();
+    }
+
     public async Task CopyToClipboardAsync(IReadOnlyList<ItemViewModel> items, bool cut)
     {
         if (items.Count == 0) return;
@@ -411,20 +549,53 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             move = (effect & 2) != 0 && (effect & 1) == 0;
         }
 
-        var sources = await Task.WhenAll(files.Select(f => Core.Threading.StaWorkerPool.General.Run(() => ShellNative.Parse(f))));
-        var sameFolder = location.FileSystemPath is not null &&
-                         files.All(f => string.Equals(Path.GetDirectoryName(f.TrimEnd('\\')), location.FileSystemPath.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase));
-
-        if (move && sameFolder) return; // moving onto itself: nothing to do, as in Explorer
-        var (log, progress) = TrackedLog();
-        FileOpResult result;
-        using (progress)
-            result = move
-                ? await FileOperations.MoveAsync(sources, location.Pidl, Hwnd, log)
-                : await FileOperations.CopyAsync(sources, location.Pidl, Hwnd, renameOnCollision: sameFolder, log: log);
+        var result = await TransferAsync(files, location.Pidl, location.FileSystemPath, location.DisplayName, move);
         if (move && result == FileOpResult.Succeeded) Clipboard.Clear();
-        // A cancelled paste may still have done part of the work; that part is undoable too.
-        UndoService.PushFrom(log, move ? FileOpKind.Move : FileOpKind.Copy, move ? "Move" : "Copy");
+    }
+
+    /// <summary>
+    /// Copies or moves files and folders into a folder through the transfer queue, with undo. Returns null when there
+    /// was nothing to do or the queued job was cancelled before it started.
+    /// </summary>
+    public async Task<FileOpResult?> TransferAsync(IReadOnlyList<string> files, Pidl destination, string? destinationPath,
+        string destinationName, bool move)
+    {
+        if (files.Count == 0) return null;
+        var sameFolder = destinationPath is not null &&
+                         files.All(f => string.Equals(Path.GetDirectoryName(f.TrimEnd('\\')), destinationPath.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase));
+        if (move && sameFolder) return null; // moving onto itself: nothing to do, as in Explorer
+
+        var single = Path.GetFileName(files[0].TrimEnd('\\')) is { Length: > 0 } n ? n : files[0];
+        var what = files.Count == 1 ? $"\u201c{single}\u201d" : $"{files.Count} items";
+        var result = FileOpResult.Failed;
+        var ran = await TransferQueue.Enqueue($"{(move ? "Move" : "Copy")} {what}", $"to {destinationName}", async () =>
+        {
+            try
+            {
+                var sources = await Task.WhenAll(files.Select(f => Core.Threading.StaWorkerPool.General.Run(() => ShellNative.Parse(f))));
+                // The window that queued the job may have closed while it waited; the dialogs then go without an owner.
+                var owner = User32.IsWindow(Hwnd) ? Hwnd : IntPtr.Zero;
+                var (log, progress) = TrackedLog();
+                using (progress)
+                    result = move
+                        ? await FileOperations.MoveAsync(sources, destination, owner, log)
+                        : await FileOperations.CopyAsync(sources, destination, owner, renameOnCollision: sameFolder, log: log);
+                // A cancelled transfer may still have done part of the work; that part is undoable too.
+                UndoService.PushFrom(log, move ? FileOpKind.Move : FileOpKind.Copy, move ? "Move" : "Copy");
+            }
+            catch (Exception ex) { ShowNotice(ex.Message); }
+        });
+        return ran ? result : null;
+    }
+
+    /// <summary>Alt+F5 / Alt+F6 in dual pane: copies or moves the selection into the folder shown in the other pane.</summary>
+    public async Task TransferToOtherPaneAsync(IReadOnlyList<ItemViewModel> items, bool move)
+    {
+        if (OtherPane is not { } other) { ShowNotice("Split the tab into two panes first (Ctrl+\\)."); return; }
+        if (other.Location is not { IsFileSystemFolder: true } target) { ShowNotice("The other pane isn't showing a folder you can copy to."); return; }
+        var files = items.Select(i => i.Entry.Path).OfType<string>().ToList();
+        if (files.Count == 0) { ShowNotice(items.Count == 0 ? "Select the items first." : "Only files and folders can be copied to the other pane."); return; }
+        await TransferAsync(files, target.Pidl, target.FileSystemPath, target.DisplayName, move);
     }
 
     public async Task UndoAsync()
@@ -480,7 +651,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         var location = await ShellLocation.ResolveAsync(parent);
         if (location is null) { ShowNotice($"Windows can't find \u201c{parent}\u201d."); return; }
         if (target == OpenTarget.NewTab)
-            await OpenTabAsync(location, selectPath: path, index: SelectedTab is null ? null : Tabs.IndexOf(SelectedTab) + 1);
+            await OpenTabAsync(location, selectPath: path, index: CurrentTab is null ? null : Tabs.IndexOf(CurrentTab) + 1);
         else await NavigateAsync(location, OpenTarget.Here, selectPath: path);
     }
 

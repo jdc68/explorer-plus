@@ -41,6 +41,17 @@ public static class FileOperations
             Check(op.RenameItem(si, newName, IntPtr.Zero));
         });
 
+    /// <summary>Renames several items in one operation (one elevation prompt, one error dialog).</summary>
+    public static Task<FileOpResult> RenameManyAsync(IReadOnlyList<(Pidl Item, string NewName)> items, IntPtr owner, FileOpLog? log = null) =>
+        Run(owner, log, BaseFlags, (op, keep) =>
+        {
+            foreach (var (item, name) in items)
+            {
+                var si = keep.Add(ShellNative.CreateItem(item));
+                Check(op.RenameItem(si, name, IntPtr.Zero));
+            }
+        });
+
     public static Task<FileOpResult> NewFolderAsync(Pidl parent, string name, IntPtr owner, FileOpLog? log = null) =>
         Run(owner, log, BaseFlags, (op, keep) =>
         {

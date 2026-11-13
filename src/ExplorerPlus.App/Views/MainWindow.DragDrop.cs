@@ -21,6 +21,13 @@ public partial class MainWindow
     private ItemViewModel? _deferredSelect;
     private List<ItemViewModel>? _dragging;
 
+    /// <summary>
+    /// Paths of the files an Explorer+ window is dragging right now (any window: drags never leave the UI thread).
+    /// Drops of these into a folder go through the transfer queue; drops from other apps stay with the shell, because
+    /// some sources (archivers, browsers) delete what they dropped as soon as the drop returns.
+    /// </summary>
+    private static List<string>? _internalDragPaths;
+
     private void OnFileListPreviewRightButtonDown(object sender, MouseButtonEventArgs e)
     {
         _pressPoint = e.GetPosition(FileList);
@@ -47,28 +54,42 @@ public partial class MainWindow
         catch { return; }
         _deferredSelect = null;
         _dragging = items;
+        var paths = items.Select(i => i.Entry.Path).ToList();
+        _internalDragPaths = paths.All(p => p is not null) ? paths.OfType<string>().ToList() : null;
         Mouse.Capture(null);
         try { ShellDragDrop.DoDrag(pidls, _hwnd); }
         catch (Exception ex) { ViewModel.ShowNotice(ex.Message); }
-        finally { _dragging = null; }
+        finally
+        {
+            _dragging = null;
+            _internalDragPaths = null;
+        }
     }
 
     // ================= Drop targets (file list, sidebar, tabs) =================
+
+    /// <summary>A file-system folder a drop can be queued into.</summary>
+    private sealed record DropFolder(Pidl Pidl, string Path, string Name);
 
     private sealed class DropSession(object key, IDropTarget target, IntPtr data) : IDisposable
     {
         public object Key { get; } = key;
 
+        public DropFolder? Folder { get; init; }
+
+        /// <summary>What the shell said the drop would do, last time the pointer moved (copy, move, link).</summary>
+        public uint LastEffect { get; private set; }
+
         public uint Enter(uint keys, POINT pt, uint allowed)
         {
             var effect = allowed;
-            return target.DragEnter(data, keys, pt, ref effect) == 0 ? effect : DropEffect.None;
+            return LastEffect = target.DragEnter(data, keys, pt, ref effect) == 0 ? effect : DropEffect.None;
         }
 
         public uint Over(uint keys, POINT pt, uint allowed)
         {
             var effect = allowed;
-            return target.DragOver(keys, pt, ref effect) == 0 ? effect : DropEffect.None;
+            return LastEffect = target.DragOver(keys, pt, ref effect) == 0 ? effect : DropEffect.None;
         }
 
         public void Leave() => target.DragLeave();
@@ -89,6 +110,7 @@ public partial class MainWindow
     private ItemViewModel? _dropHighlight;
     private DispatcherTimer? _tabSwitchTimer;
     private TabViewModel? _tabSwitchCandidate;
+    private bool _dropRightButton;
 
     private static POINT CursorPoint()
     {
@@ -115,11 +137,13 @@ public partial class MainWindow
     }
 
     /// <summary>Routes the drag to the shell drop target for <paramref name="key"/> (null: nothing droppable here).</summary>
-    private void DragOverTarget(DragEventArgs e, object? key, Func<(Pidl Pidl, bool Background)?> resolve)
+    private void DragOverTarget(DragEventArgs e, object? key, Func<(Pidl Pidl, bool Background)?> resolve, Func<Pidl, DropFolder?>? folder = null)
     {
         e.Handled = true;
         var pt = CursorPoint();
         var keys = (uint)e.KeyStates;
+        // At drop time the button is already up, so remember whether this is a right-drag (the shell shows a menu then).
+        _dropRightButton = e.KeyStates.HasFlag(DragDropKeyStates.RightMouseButton);
         var allowed = (uint)e.AllowedEffects;
         var data = DataPointer(e);
         if (!_helperEntered && DropHelper is { } h)
@@ -135,7 +159,7 @@ public partial class MainWindow
             EndDropSession();
             if (resolve() is { } r && ShellDragDrop.GetDropTarget(r.Pidl, r.Background, _hwnd) is { } target)
             {
-                _drop = new DropSession(key, target, data);
+                _drop = new DropSession(key, target, data) { Folder = folder?.Invoke(r.Pidl) };
                 effect = _drop.Enter(keys, pt, allowed);
             }
         }
@@ -149,6 +173,7 @@ public partial class MainWindow
     private void DropOnTarget(DragEventArgs e)
     {
         e.Handled = true;
+        if (TryQueueDrop(e)) return;
         var pt = CursorPoint();
         var effect = DropEffect.None;
         try
@@ -165,6 +190,33 @@ public partial class MainWindow
             ReleaseDragData();
         }
         e.Effects = (DragDropEffects)effect;
+    }
+
+    /// <summary>
+    /// A left-drag of Explorer+'s own files onto a folder, as a copy or a move: tell the shell target the drag left,
+    /// and run the transfer through the queue instead. The source is told nothing happened (DROPEFFECT_NONE), so it
+    /// never deletes anything itself; the queue does the move.
+    /// </summary>
+    private bool TryQueueDrop(DragEventArgs e)
+    {
+        if (_drop is not { Folder: { } folder } session || _internalDragPaths is not { Count: > 0 } paths || _dropRightButton) return false;
+        var effect = session.LastEffect;
+        bool move;
+        if ((effect & DropEffect.Move) != 0) move = true;
+        else if ((effect & DropEffect.Copy) != 0) move = false;
+        else return false; // links and refusals stay with the shell
+
+        try { session.Leave(); } catch { }
+        if (_helperEntered) { _dropHelper?.DragLeave(); _helperEntered = false; }
+        session.Dispose();
+        _drop = null;
+        ReleaseDragData();
+        e.Effects = DragDropEffects.None;
+        var files = paths.ToList();
+        // After the drag's modal loop has returned, so the source window isn't left waiting on the queue.
+        Dispatcher.BeginInvoke(DispatcherPriority.Background, async () =>
+            await ViewModel.TransferAsync(files, folder.Pidl, folder.Path, folder.Name, move));
+        return true;
     }
 
     private void EndDropSession()
@@ -221,17 +273,22 @@ public partial class MainWindow
 
     private void OnFileListDragOver(object sender, DragEventArgs e)
     {
-        if (Tab is not { Location: { } location } tab) return;
+        // The pane under the pointer, which isn't necessarily the active one (dragging from one pane to the other).
+        if (PaneOf(sender).Tab is not { Location: { } location } tab) return;
         var row = FindAncestor<ListViewItem>(e.OriginalSource as DependencyObject);
         if (row?.DataContext is ItemViewModel item && IsDropTargetItem(item))
         {
             // Hovering the items being dragged: nowhere to drop.
             if (_dragging?.Contains(item) == true) { DragOverTarget(e, null, () => null); return; }
-            DragOverTarget(e, item, () => item.Entry.GetPidl() is { } p ? (p, false) : null);
+            DragOverTarget(e, item, () => item.Entry.GetPidl() is { } p ? (p, false) : null,
+                p => item is { IsFolder: true, Entry.Path: { } path } ? new DropFolder(p, path, item.Name) : null);
             return;
         }
-        DragOverTarget(e, tab, () => (location.Pidl, true));
+        DragOverTarget(e, tab, () => (location.Pidl, true), FolderOf(location));
     }
+
+    private static Func<Pidl, DropFolder?> FolderOf(ShellLocation location) =>
+        p => location is { IsFileSystemFolder: true, FileSystemPath: { } path } ? new DropFolder(p, path, location.DisplayName) : null;
 
     private void OnFileListDrop(object sender, DragEventArgs e) => DropOnTarget(e);
 
@@ -239,7 +296,8 @@ public partial class MainWindow
     {
         var row = FindAncestor<TreeViewItem>(e.OriginalSource as DependencyObject);
         if (row?.DataContext is not SidebarFolder folder) { DragOverTarget(e, null, () => null); return; }
-        DragOverTarget(e, folder, () => ShellNative.TryParse(folder.Target) is { } p ? (p, false) : null);
+        DragOverTarget(e, folder, () => ShellNative.TryParse(folder.Target) is { } p ? (p, false) : null,
+            p => folder.FileSystemPath is { } path && folder is not SidebarDrive { HasSpaceInfo: false } ? new DropFolder(p, path, folder.Name) : null);
     }
 
     private void OnSidebarDrop(object sender, DragEventArgs e) => DropOnTarget(e);
@@ -248,7 +306,7 @@ public partial class MainWindow
     {
         var row = FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject);
         if (row?.DataContext is not TabViewModel { Location: { } location } tab) { DragOverTarget(e, null, () => null); return; }
-        DragOverTarget(e, tab, () => (location.Pidl, true));
+        DragOverTarget(e, tab, () => (location.Pidl, true), FolderOf(location));
 
         // Hovering a tab for a moment switches to it, so you can drop into a specific folder there (as in Explorer).
         if (ReferenceEquals(tab, ViewModel.SelectedTab) || ReferenceEquals(tab, _tabSwitchCandidate)) return;
@@ -311,7 +369,7 @@ public partial class MainWindow
     {
         if (_marqueeStart is null || ListScrollViewer is not { } sv) return;
         var p = Mouse.GetPosition(FileList);
-        var horizontal = _appliedMode == ViewMode.List;
+        var horizontal = _active.AppliedMode == ViewMode.List;
         if (horizontal)
         {
             if (p.X < 0) sv.LineLeft();

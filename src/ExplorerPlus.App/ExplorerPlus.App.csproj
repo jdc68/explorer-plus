@@ -9,9 +9,18 @@
     <ApplicationIcon>Assets\ExplorerPlus.ico</ApplicationIcon>
   </PropertyGroup>
 
+  <!-- Program.Main is the entry point: it forwards to a running instance before WPF starts. As a Page, App.xaml
+       still gets InitializeComponent but no generated Main. -->
+  <ItemGroup>
+    <ApplicationDefinition Remove="App.xaml" />
+    <Page Include="App.xaml" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\ExplorerPlus.Core\ExplorerPlus.Core.csproj" />
     <ProjectReference Include="..\ExplorerPlus.Interop\ExplorerPlus.Interop.csproj" />
+    <!-- Ships the index service next to ExplorerPlus.exe; Settings installs it from there. -->
+    <ProjectReference Include="..\ExplorerPlus.IndexService\ExplorerPlus.IndexService.csproj" />
   </ItemGroup>
 
 </Project>

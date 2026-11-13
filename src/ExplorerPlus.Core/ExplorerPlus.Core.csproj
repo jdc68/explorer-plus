@@ -1,6 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <ProjectReference Include="..\ExplorerPlus.Indexing\ExplorerPlus.Indexing.csproj" />
     <ProjectReference Include="..\ExplorerPlus.Interop\ExplorerPlus.Interop.csproj" />
   </ItemGroup>
 

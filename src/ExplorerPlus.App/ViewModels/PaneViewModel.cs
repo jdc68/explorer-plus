@@ -51,10 +51,15 @@ public sealed class PaneViewModel : ObservableObject
     private string _previewText = "";
     private PreviewTarget? _handlerTarget;
 
-    public PaneViewModel()
+    private readonly bool _quickLook;
+
+    /// <param name="quickLook">For the Quick Look window: always a preview, not saved to settings, quicker to follow
+    /// the selection, and folders show a large thumbnail instead of a hint.</param>
+    public PaneViewModel(bool quickLook = false)
     {
-        _mode = AppSettings.Current.Pane;
-        _timer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(150) };
+        _quickLook = quickLook;
+        _mode = quickLook ? PaneMode.Preview : AppSettings.Current.Pane;
+        _timer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(quickLook ? 60 : 150) };
         _timer.Tick += (_, _) => { _timer.Stop(); _ = RefreshAsync(); };
     }
 
@@ -63,7 +68,7 @@ public sealed class PaneViewModel : ObservableObject
         get => _mode;
         set
         {
-            if (!Set(ref _mode, value)) return;
+            if (_quickLook || !Set(ref _mode, value)) return;
             AppSettings.Current.Pane = value;
             AppSettings.Current.Save();
             OnPropertyChanged(nameof(IsOpen));
@@ -234,6 +239,20 @@ public sealed class PaneViewModel : ObservableObject
         }
         var item = selection[0];
         var path = item.Entry.Path;
+        if (_quickLook && (item.IsFolder || path is null))
+        {
+            // Folders, drives and virtual items: their big icon, then the shell's thumbnail if it has one.
+            HandlerTarget = null;
+            PreviewImage = IconCache.Get(item.IconIndex, 256);
+            Kind = PreviewKind.Image;
+            var pidl = item.Entry.Pidl ?? (path is null ? await item.Entry.GetPidlAsync() : null);
+            if (version != _version) return;
+            ThumbnailService.Request(path, path is null ? pidl : null, 512, img =>
+            {
+                if (version == _version && img is not null) PreviewImage = img;
+            }, () => { });
+            return;
+        }
         if (item.IsFolder || path is null)
         {
             HandlerTarget = null;

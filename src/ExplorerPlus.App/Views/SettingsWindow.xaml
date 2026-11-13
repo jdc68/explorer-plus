@@ -69,11 +69,27 @@
                     <CheckBox Content="Open folders from other apps in a new tab" IsChecked="{Binding OpenFoldersInNewTab}" Margin="0" />
                     <TextBlock Text="Off: each folder opened from another app gets its own window, as in File Explorer." Style="{StaticResource Hint}" />
                     <CheckBox Content="Reopen the tabs from last time" IsChecked="{Binding RestoreSession}" />
+                    <TextBlock Text="Off: closing a window closes its tabs, and the next window starts fresh." Style="{StaticResource Hint}" />
+                </StackPanel>
+            </Border>
+            <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <CheckBox Content="Keep Explorer+ running after the last window closes" IsChecked="{Binding KeepRunningInBackground}" Margin="0" />
+                    <TextBlock Text="Folders then open instantly, also from other apps. More ▸ Exit closes it completely." Style="{StaticResource Hint}" />
+                    <CheckBox Content="Start Explorer+ in the background when I sign in" IsChecked="{Binding StartWithWindows}"
+                              IsEnabled="{Binding KeepRunningInBackground}" />
+                    <TextBlock Text="So the first folder after a restart opens instantly too. Listed in Windows Settings ▸ Apps ▸ Startup." Style="{StaticResource Hint}" />
                 </StackPanel>
             </Border>
 
             <!-- ===== Files and folders ===== -->
             <TextBlock Text="Files and folders" Style="{StaticResource Section}" />
+            <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <CheckBox Content="Queue copies and moves" IsChecked="{Binding QueueTransfers}" Margin="0" />
+                    <TextBlock Text="Pastes, drops between Explorer+ panes and windows, and copies to the other pane run one at a time. Drops from other apps are handled by Windows right away." Style="{StaticResource Hint}" />
+                </StackPanel>
+            </Border>
             <Border Style="{StaticResource Card}">
                 <StackPanel>
                     <CheckBox Content="Show hidden files and folders" IsChecked="{Binding ShowHiddenFiles}" Margin="0" />
@@ -118,6 +134,23 @@
                              TextWrapping="NoWrap" VerticalScrollBarVisibility="Auto" Height="180" Margin="0,10,0,0"
                              FontFamily="Cascadia Mono, Consolas" AutomationProperties.LabeledBy="{Binding ElementName=MenuLabel}" />
                     <Button Content="Restore defaults" HorizontalAlignment="Left" Margin="0,10,0,0" Click="OnRestoreMenuDefaultsClick" />
+                </StackPanel>
+            </Border>
+
+            <!-- ===== Instant search ===== -->
+            <TextBlock Text="Instant search" Style="{StaticResource Section}" />
+            <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <TextBlock Text="Search file names on every NTFS drive as you type" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding IndexStatusText}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                    <TextBlock Style="{StaticResource Hint}" Margin="0,4,0,0"
+                               Text="A small Windows service (Explorer+ Index) reads the drives' file tables and keeps up with every change, so Enter in the search box finds files by name at once, and typing searches again. Installing it asks for administrator rights once. Searches only show files you're allowed to see. Searches with kind:, date: or size: still use Windows Search." />
+                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                        <Button Content="{Binding IndexInstallLabel}" Click="OnInstallIndexClick" IsEnabled="{Binding CanInstallIndex}"
+                                Style="{DynamicResource AccentButtonStyle}" />
+                        <Button Content="Turn off and remove" Margin="8,0,0,0" Click="OnRemoveIndexClick" IsEnabled="{Binding CanRemoveIndex}" />
+                    </StackPanel>
+                    <TextBlock Text="{Binding IndexMessage}" TextWrapping="Wrap" Margin="0,6,0,0" Style="{StaticResource Hint}" />
                 </StackPanel>
             </Border>
 

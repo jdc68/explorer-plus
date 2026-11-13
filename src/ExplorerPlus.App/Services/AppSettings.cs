@@ -40,7 +40,15 @@ public sealed class AppSettings
     ];
 
     public bool OpenFoldersInNewTab { get; set; } = true;
-    public bool RestoreSession { get; set; } = true;
+
+    /// <summary>Reopen last time's tabs. Off by default: closing the last window closes its tabs, like File Explorer.</summary>
+    public bool RestoreSession { get; set; }
+
+    /// <summary>Stay running with no window after the last one closes, so folders open instantly.</summary>
+    public bool KeepRunningInBackground { get; set; } = true;
+
+    /// <summary>Start in the background at sign-in (only while <see cref="KeepRunningInBackground"/> is on).</summary>
+    public bool StartWithWindows { get; set; } = true;
     public string StartLocation { get; set; } = ShellLocation.Known.Home;
 
     public List<string> LastSession { get; set; } = [];
@@ -51,6 +59,9 @@ public sealed class AppSettings
 
     /// <summary>Pick a view from what a folder holds (pictures as large icons…) unless one was set by hand.</summary>
     public bool ContentAwareViews { get; set; } = true;
+
+    /// <summary>Run copies and moves one after another (the transfer queue) instead of all at once.</summary>
+    public bool QueueTransfers { get; set; } = true;
 
     /// <summary>System, Light or Dark.</summary>
     public string Theme { get; set; } = "System";
@@ -79,6 +90,20 @@ public sealed class AppSettings
 
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 
+    private const int CurrentFormat = 1;
+
+    /// <summary>Settings format, for one-time changes to files written by older versions (0 = before it existed).</summary>
+    public int Format { get; set; }
+
+    private void Upgrade()
+    {
+        if (Format >= CurrentFormat) return;
+        // Format 1: session restore became opt-in, so turn off the old default.
+        if (Format < 1) RestoreSession = false;
+        Format = CurrentFormat;
+        Save();
+    }
+
     public static void Load()
     {
         try
@@ -90,6 +115,7 @@ public sealed class AppSettings
         {
             Current = new AppSettings();
         }
+        Current.Upgrade();
         Current.ApplyToCore();
     }
 

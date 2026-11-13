@@ -6,6 +6,7 @@ using ExplorerPlus.App.Infrastructure;
 using ExplorerPlus.App.Services;
 using ExplorerPlus.Core.Integration;
 using ExplorerPlus.Core.Shell;
+using ExplorerPlus.Indexing;
 
 namespace ExplorerPlus.App.ViewModels;
 
@@ -26,6 +27,7 @@ public sealed class SettingsViewModel : ObservableObject
     {
         _hiddenMenuText = string.Join(Environment.NewLine, S.HiddenMenuItems);
         RefreshDefaultStatus();
+        _ = RefreshIndexStatusAsync();
     }
 
     private void Change(Action apply, string? property = null)
@@ -67,7 +69,29 @@ public sealed class SettingsViewModel : ObservableObject
     }
 
     public bool OpenFoldersInNewTab { get => S.OpenFoldersInNewTab; set => Change(() => S.OpenFoldersInNewTab = value); }
+
+    public bool QueueTransfers { get => S.QueueTransfers; set => Change(() => S.QueueTransfers = value); }
     public bool RestoreSession { get => S.RestoreSession; set => Change(() => S.RestoreSession = value); }
+
+    public bool KeepRunningInBackground
+    {
+        get => S.KeepRunningInBackground;
+        set
+        {
+            Change(() => S.KeepRunningInBackground = value);
+            Task.Run(Background.SyncStartupEntry);
+        }
+    }
+
+    public bool StartWithWindows
+    {
+        get => S.StartWithWindows;
+        set
+        {
+            Change(() => S.StartWithWindows = value);
+            Task.Run(Background.SyncStartupEntry);
+        }
+    }
 
     // ---------- Files and folders ----------
 
@@ -150,6 +174,101 @@ public sealed class SettingsViewModel : ObservableObject
     {
         get => _integrationMessage;
         private set => Set(ref _integrationMessage, value);
+    }
+
+    // ---------- Instant search ----------
+
+    private IndexServiceState _indexState = IndexServiceState.Unknown;
+    private StatusResponse? _indexStatus;
+    private bool _indexBusy;
+    private string? _indexMessage;
+
+    public string IndexStatusText
+    {
+        get
+        {
+            if (_indexBusy) return "Waiting for the installer…";
+            if (!IndexServiceSetup.IsShipped) return "Not part of this copy of Explorer+ (a development build without the service).";
+            return _indexState switch
+            {
+                IndexServiceState.NotInstalled => "Off. Enter in the search box uses Windows Search.",
+                IndexServiceState.Stopped => "Installed, but not running.",
+                IndexServiceState.Starting => "Starting…",
+                IndexServiceState.Running when _indexStatus is null => "Running, but not answering yet.",
+                IndexServiceState.Running => DescribeVolumes(_indexStatus!),
+                _ => "Couldn't ask Windows about the service.",
+            };
+        }
+    }
+
+    private static string DescribeVolumes(StatusResponse status)
+    {
+        if (status.Volumes.Count == 0) return "On, but there are no NTFS drives to read.";
+        var parts = status.Volumes.Select(v => v.State switch
+        {
+            VolumeState.Ready => $"{v.Root.TrimEnd('\\')} {v.Count:N0} items",
+            VolumeState.Scanning => $"{v.Root.TrimEnd('\\')} reading…",
+            _ => $"{v.Root.TrimEnd('\\')} failed ({v.Error})",
+        });
+        var text = "On: " + string.Join(", ", parts) + ".";
+        if (IsOutdated(status)) text += $" The service is version {status.Version}; this Explorer+ is {IndexServiceSetup.AppVersion}.";
+        return text;
+    }
+
+    private static bool IsOutdated(StatusResponse? status) =>
+        status is not null && Version.TryParse(status.Version, out var service) && Version.TryParse(IndexServiceSetup.AppVersion, out var app) && service < app;
+
+    public string IndexInstallLabel => _indexState switch
+    {
+        IndexServiceState.NotInstalled or IndexServiceState.Unknown => "Turn on instant search",
+        IndexServiceState.Stopped => "Start the service",
+        _ when IsOutdated(_indexStatus) => "Update the service",
+        _ => "Reinstall the service",
+    };
+
+    public bool CanInstallIndex => !_indexBusy && IndexServiceSetup.IsShipped;
+    public bool CanRemoveIndex => !_indexBusy && _indexState is not (IndexServiceState.NotInstalled or IndexServiceState.Unknown);
+
+    public string? IndexMessage
+    {
+        get => _indexMessage;
+        private set => Set(ref _indexMessage, value);
+    }
+
+    public async Task RefreshIndexStatusAsync()
+    {
+        _indexState = await Task.Run(IndexClient.QueryService);
+        _indexStatus = _indexState == IndexServiceState.Running ? await IndexSearch.GetStatusAsync(fresh: true) : null;
+        RaiseIndexProperties();
+    }
+
+    private void RaiseIndexProperties()
+    {
+        OnPropertyChanged(nameof(IndexStatusText));
+        OnPropertyChanged(nameof(IndexInstallLabel));
+        OnPropertyChanged(nameof(CanInstallIndex));
+        OnPropertyChanged(nameof(CanRemoveIndex));
+    }
+
+    public Task InstallIndexAsync() => RunIndexSetupAsync(install: true);
+    public Task RemoveIndexAsync() => RunIndexSetupAsync(install: false);
+
+    private async Task RunIndexSetupAsync(bool install)
+    {
+        _indexBusy = true;
+        IndexMessage = null;
+        RaiseIndexProperties();
+        var error = await IndexServiceSetup.RunAsync(install);
+        _indexBusy = false;
+        IndexMessage = error is null ? (install ? "Instant search is on." : "Instant search is off, and the service is removed.") : "Didn't work: " + error;
+        await RefreshIndexStatusAsync();
+        if (!install || error is not null) return;
+        // The drives are read in the background; show the counts as they come in.
+        for (var i = 0; i < 60 && (_indexStatus is null || _indexStatus.Volumes.Any(v => v.State == VolumeState.Scanning)); i++)
+        {
+            await Task.Delay(1000);
+            await RefreshIndexStatusAsync();
+        }
     }
 
     private void RefreshDefaultStatus()

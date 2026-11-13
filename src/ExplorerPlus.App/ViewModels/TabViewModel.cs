@@ -48,6 +48,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
     private bool _columnsRemembered;
     private string? _groupBy;
     private string? _sortProperty;
+    private TabViewModel? _partner;
 
     public TabViewModel()
     {
@@ -56,6 +57,21 @@ public sealed class TabViewModel : ObservableObject, IDisposable
     }
 
     public RangeObservableCollection<ItemViewModel> Items { get; } = new();
+
+    /// <summary>
+    /// The right-hand pane when this tab is split (dual pane). It is a view of its own, with its own history,
+    /// layout and selection, and it goes wherever the tab goes (another window, closing).
+    /// </summary>
+    public TabViewModel? Partner
+    {
+        get => _partner;
+        set
+        {
+            if (Set(ref _partner, value)) OnPropertyChanged(nameof(IsSplit));
+        }
+    }
+
+    public bool IsSplit => _partner is not null;
 
     public ShellLocation? Location
     {
@@ -71,6 +87,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
             OnPropertyChanged(nameof(IsHome));
             OnPropertyChanged(nameof(IsRecycleBin));
             OnPropertyChanged(nameof(IsSearch));
+            OnPropertyChanged(nameof(IsLiveSearch));
             OnPropertyChanged(nameof(ShowNetworkActions));
             OnPropertyChanged(nameof(CanSearch));
             OnPropertyChanged(nameof(EmptyMessage));
@@ -81,7 +98,9 @@ public sealed class TabViewModel : ObservableObject, IDisposable
 
     /// <summary>The tab's tooltip: the folder's path, or its name for virtual folders (not a CLSID).</summary>
     public string? ToolTip => _location is null ? null : _location.FileSystemPath ?? _location.DisplayName;
-    public string SearchPlaceholder => Kind == LocationKind.Search
+    public string SearchPlaceholder => IsLiveSearch
+        ? $"Search {_location!.SearchScope?.DisplayName}"
+        : Kind == LocationKind.Search
         ? $"Filter results for “{_location!.SearchQuery}”"
         : CanSearch ? $"Search {_location!.DisplayName}" : $"Filter {_location?.DisplayName ?? ""}";
 
@@ -131,7 +150,13 @@ public sealed class TabViewModel : ObservableObject, IDisposable
 
     public bool ShowEmptyMessage => !_isLoading && _error is null && Items.Count == 0;
 
-    public string EmptyMessage => _filterText.Length > 0 ? "No items match your filter." : Kind switch
+    /// <summary>Instant-search results: the search box holds the query rather than a filter.</summary>
+    public bool IsLiveSearch => _location?.IsIndexSearch == true;
+
+    /// <summary>What the list is filtered by (nothing on instant-search results, whose box holds the query).</summary>
+    private string ListFilter => IsLiveSearch ? "" : _filterText;
+
+    public string EmptyMessage => ListFilter.Length > 0 ? "No items match your filter." : Kind switch
     {
         LocationKind.Search => "No items match your search.",
         LocationKind.Home => "Pin folders and star files (Ctrl+D) to see them here.",
@@ -152,7 +177,8 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         {
             if (!Set(ref _filterText, value ?? "")) return;
             OnPropertyChanged(nameof(EmptyMessage));
-            _ = ApplyViewAsync(keepSelection: true);
+            if (IsLiveSearch) ScheduleRequery();
+            else _ = ApplyViewAsync(keepSelection: true);
         }
     }
 
@@ -196,7 +222,8 @@ public sealed class TabViewModel : ObservableObject, IDisposable
 
     // ---------- Navigation ----------
 
-    public enum NavMode { New, Back, Forward, Refresh }
+    /// <summary>Replace: show another location in place of this one, without a history step (instant search while typing).</summary>
+    public enum NavMode { New, Back, Forward, Refresh, Replace }
 
     public async Task NavigateAsync(ShellLocation location, NavMode mode = NavMode.New, string? selectPath = null)
     {
@@ -215,8 +242,13 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         Location = location;
         OnPropertyChanged(nameof(CanGoBack));
         OnPropertyChanged(nameof(CanGoForward));
-        _filterText = "";
-        OnPropertyChanged(nameof(FilterText));
+        // On instant-search results the box holds the query, and typing searches again; while typing (Replace) the
+        // box keeps exactly what was typed.
+        if (mode != NavMode.Replace)
+        {
+            _filterText = location.IsIndexSearch ? location.SearchQuery ?? "" : "";
+            OnPropertyChanged(nameof(FilterText));
+        }
 
         _watch?.Dispose();
         _watch = WatchFor(location);
@@ -240,15 +272,40 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         return ShellChangeWatcher.Instance.Watch(location.Pidl, false, SHCNE.ALLEVENTS, OnShellChange);
     }
 
-    /// <summary>Runs Windows Search for <paramref name="query"/> in this tab's folder (or the folder of the current results).</summary>
+    /// <summary>
+    /// Searches for <paramref name="query"/> in this tab's folder (or the folder of the current results): instantly
+    /// through the index service when it runs and covers the folder, otherwise (and for Windows Search's own
+    /// <c>kind:</c>, <c>date:</c> syntax) with Windows Search.
+    /// </summary>
     public async Task<bool> SearchAsync(string query)
     {
         var scope = SearchScope;
         if (string.IsNullOrWhiteSpace(query) || !SearchLocation.CanSearch(scope)) return false;
+        if (IsLiveSearch && string.Equals(query.Trim(), _location!.SearchQuery, StringComparison.Ordinal)) return true;
+        if (!IndexSearch.IsWindowsSearchQuery(query) && await IndexSearch.CanSearchAsync(scope))
+        {
+            await NavigateAsync(IndexSearch.Create(query, scope!), IsLiveSearch ? NavMode.Replace : NavMode.New);
+            return true;
+        }
         var search = await StaWorkerPool.Enumeration.Run(() => SearchLocation.Create(query, scope!));
         if (search is null) return false;
         await NavigateAsync(search);
         return true;
+    }
+
+    private CancellationTokenSource? _requeryCts;
+
+    /// <summary>Typing on instant-search results: search again once typing pauses.</summary>
+    private async void ScheduleRequery()
+    {
+        _requeryCts?.Cancel();
+        var cts = _requeryCts = new CancellationTokenSource();
+        try { await Task.Delay(150, cts.Token); }
+        catch (OperationCanceledException) { return; }
+        var query = _filterText.Trim();
+        if (_location is not { IsIndexSearch: true, SearchScope: { } scope } || query.Length == 0 || query == _location.SearchQuery) return;
+        if (IndexSearch.IsWindowsSearchQuery(query)) return; // Enter hands it to Windows Search
+        await NavigateAsync(IndexSearch.Create(query, scope), NavMode.Replace);
     }
 
     public async Task GoBackAsync()
@@ -427,7 +484,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
     {
         var version = ++_viewVersion;
         var snapshot = _all.ToArray();
-        var filter = _filterText;
+        var filter = ListFilter;
         var settings = AppSettings.Current;
         var showHidden = settings.ShowHiddenFiles;
         var showProtected = settings.ShowProtectedOsFiles;
@@ -756,7 +813,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
 
         // Groups are ranked over the whole list, so a grouped view is rebuilt rather than patched.
         if (_groupBy is not null) _ = ApplyViewAsync(keepSelection: true);
-        else if (PassesFilter(vm, _filterText, settings.ShowHiddenFiles, settings.ShowProtectedOsFiles))
+        else if (PassesFilter(vm, ListFilter, settings.ShowHiddenFiles, settings.ShowProtectedOsFiles))
             InsertSorted(vm, comparer);
         if (vm.IsFolder) RequestFolderSizes([vm], restart: false);
         OnPropertyChanged(nameof(ShowEmptyMessage));
@@ -882,6 +939,11 @@ public sealed class TabViewModel : ObservableObject, IDisposable
     private void UpdateStatus()
     {
         ItemCountText = _isLoading && Items.Count == 0 ? (IsSearch ? "Searching…" : "Loading…") : $"{Items.Count:N0} item{(Items.Count == 1 ? "" : "s")}";
+        if (!_isLoading && _location?.IndexResults is { } found)
+        {
+            if (found.Truncated) ItemCountText += $" (the best of {found.Total:N0} matches)";
+            if (found.Scanning) ItemCountText += " · still reading some drives";
+        }
         var sel = _selectedItems;
         if (sel.Count == 0) SelectionText = "";
         else
@@ -905,5 +967,6 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         FolderSizeWatcher.Changed -= OnFolderSizesInvalidated;
         Stars.Changed -= OnStarsChanged;
         _watch?.Dispose();
+        _partner?.Dispose();
     }
 }

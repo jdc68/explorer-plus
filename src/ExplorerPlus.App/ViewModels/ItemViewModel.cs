@@ -255,20 +255,7 @@ public sealed class ItemViewModel : ObservableObject
         }, TaskScheduler.Default);
     }
 
-    public static string FormatSize(long bytes)
-    {
-        // Explorer's details view always uses KB with grouping ("1,234 KB").
-        if (bytes == 0) return "0 KB";
-        var kb = Math.Max(1, (bytes + 1023) / 1024);
-        return kb.ToString("N0") + " KB";
-    }
+    public static string FormatSize(long bytes) => SizeFormat.Format(bytes);
 
-    public static string FormatSizeShort(long bytes)
-    {
-        string[] units = ["bytes", "KB", "MB", "GB", "TB"];
-        double v = bytes;
-        var u = 0;
-        while (v >= 1024 && u < units.Length - 1) { v /= 1024; u++; }
-        return u == 0 ? $"{bytes:N0} bytes" : $"{v:0.##} {units[u]}";
-    }
+    public static string FormatSizeShort(long bytes) => SizeFormat.FormatWithBytes(bytes);
 }

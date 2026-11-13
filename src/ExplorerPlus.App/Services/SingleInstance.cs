@@ -1,6 +1,5 @@
 using System.IO;
 using System.IO.Pipes;
-using System.Text.Json;
 using ExplorerPlus.Interop;
 
 namespace ExplorerPlus.App.Services;
@@ -26,8 +25,9 @@ public sealed class SingleInstance : IDisposable
             using var client = new NamedPipeClientStream(".", Id, PipeDirection.Out);
             client.Connect(3000);
             User32.AllowSetForegroundWindow(User32.ASFW_ANY);
+            // NUL-separated: no argument can contain one, and no serializer has to warm up in this short-lived process.
             using var writer = new StreamWriter(client);
-            writer.Write(JsonSerializer.Serialize(args));
+            writer.Write(string.Join('\0', args));
             writer.Flush();
             return true;
         }
@@ -35,6 +35,18 @@ public sealed class SingleInstance : IDisposable
         {
             return false;
         }
+    }
+
+    /// <summary>After asking the running instance to quit: waits until it has exited and released the lock.</summary>
+    public bool WaitForPrimaryExit(TimeSpan timeout)
+    {
+        try
+        {
+            if (!_mutex.WaitOne(timeout)) return false;
+        }
+        catch (AbandonedMutexException) { /* it exited without releasing: we own the mutex now */ }
+        _mutex.ReleaseMutex();
+        return true;
     }
 
     public void Listen(Action<string[]> onArgs)
@@ -49,7 +61,8 @@ public sealed class SingleInstance : IDisposable
                     using var server = new NamedPipeServerStream(Id, PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
                     server.WaitForConnectionAsync(token).GetAwaiter().GetResult();
                     using var reader = new StreamReader(server);
-                    var args = JsonSerializer.Deserialize<string[]>(reader.ReadToEnd()) ?? [];
+                    var text = reader.ReadToEnd();
+                    var args = text.Length == 0 ? [] : text.Split('\0');
                     onArgs(args);
                 }
                 catch (OperationCanceledException) { return; }

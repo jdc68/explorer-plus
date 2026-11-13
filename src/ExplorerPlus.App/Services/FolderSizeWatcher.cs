@@ -52,6 +52,14 @@ public static class FolderSizeWatcher
         });
     }
 
+    /// <summary>Stops the flush timer while no window is open, so an idle background process doesn't wake up.</summary>
+    public static void SetActive(bool active)
+    {
+        if (_timer is null) return;
+        if (active) _timer.Start();
+        else _timer.Stop();
+    }
+
     private static void Flush()
     {
         string[] paths;

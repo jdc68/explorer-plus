@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The index service: runs as LocalSystem from Program Files, reads the MFT and serves searches over a pipe.
+       Also its own installer (run elevated by Explorer+ to install or remove it). -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>ExplorerPlus.IndexService</AssemblyName>
+    <RootNamespace>ExplorerPlus.IndexService</RootNamespace>
+    <ApplicationIcon>..\ExplorerPlus.App\Assets\ExplorerPlus.ico</ApplicationIcon>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <TieredPGO>true</TieredPGO>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ExplorerPlus.Indexing\ExplorerPlus.Indexing.csproj" />
+    <ProjectReference Include="..\ExplorerPlus.Interop\ExplorerPlus.Interop.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -18,6 +18,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\ExplorerPlus.Core\ExplorerPlus.Core.csproj" />
     <ProjectReference Include="..\..\src\ExplorerPlus.Interop\ExplorerPlus.Interop.csproj" />
+    <ProjectReference Include="..\..\src\ExplorerPlus.Indexing\ExplorerPlus.Indexing.csproj" />
   </ItemGroup>
 
 </Project>

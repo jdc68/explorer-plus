@@ -132,12 +132,20 @@ public static class Kernel32
     [DllImport("kernel32.dll")]
     public static extern uint SetErrorMode(uint uMode);
 
+    [DllImport("kernel32.dll", EntryPoint = "K32EmptyWorkingSet")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool EmptyWorkingSet(IntPtr hProcess);
+
     public const uint SEM_FAILCRITICALERRORS = 0x1;
     public const uint SEM_NOOPENFILEERRORBOX = 0x8000;
 }
 
 public static class User32
 {
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool IsWindow(IntPtr hWnd);
+
     [DllImport("user32.dll")]
     public static extern IntPtr CreatePopupMenu();
 
