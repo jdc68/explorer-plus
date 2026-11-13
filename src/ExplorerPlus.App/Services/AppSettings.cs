@@ -60,6 +60,9 @@ public sealed class AppSettings
     public Dictionary<string, List<string>> Tags { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public List<string> PinnedFolders { get; set; } = [];
 
+    // standard folders (Desktop, Downloads…) the user unpinned from Quick access
+    public List<string> HiddenQuickAccess { get; set; } = [];
+
     /// <summary>Folders opened lately, newest first, for the taskbar jump list.</summary>
     public List<string> RecentFolders { get; set; } = [];
 
@@ -101,7 +104,7 @@ public sealed class AppSettings
         NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals,
     };
 
-    private const int CurrentFormat = 1;
+    private const int CurrentFormat = 2;
 
     /// <summary>Settings format, for one-time changes to files written by older versions (0 = before it existed).</summary>
     public int Format { get; set; }
@@ -111,6 +114,8 @@ public sealed class AppSettings
         if (Format >= CurrentFormat) return;
         // Format 1: session restore became opt-in, so turn off the old default.
         if (Format < 1) RestoreSession = false;
+        // Format 2: Home became the start page for everyone, files from before M3 still had This PC
+        if (Format < 2) StartLocation = ShellLocation.Known.Home;
         Format = CurrentFormat;
         Save();
     }

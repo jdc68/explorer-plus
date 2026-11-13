@@ -30,14 +30,6 @@
                 <Setter Property="Focusable" Value="False" />
             </Style>
 
-            <!-- Menus and tooltips of icon buttons would otherwise inherit the icon font and show boxes instead of text. -->
-            <Style TargetType="ContextMenu" BasedOn="{StaticResource {x:Type ContextMenu}}">
-                <Setter Property="FontFamily" Value="{x:Static SystemFonts.MessageFontFamily}" />
-            </Style>
-            <Style TargetType="ToolTip" BasedOn="{StaticResource {x:Type ToolTip}}">
-                <Setter Property="FontFamily" Value="{x:Static SystemFonts.MessageFontFamily}" />
-            </Style>
-
             <Style x:Key="CommandButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
                 <Setter Property="Background" Value="Transparent" />
                 <Setter Property="BorderThickness" Value="0" />

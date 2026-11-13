@@ -105,7 +105,7 @@ Speed comes from a hybrid:
 | Network | keep | M1 ✔ |
 | Linux (WSL) | keep, shown only if WSL is installed | M1 ✔ |
 | Home: Recommended, Shared | cut | M3  ✔ |
-| Home: auto-added frequent folders | cut (manual pins kept) | M3  ✔ |
+| Home: auto-added frequent folders | cut (manual pins kept); back as a setting in I9 (#15) | M3  ✔ |
 | Home: Recent files | keep | M3  ✔ |
 | Menu: Copilot / M365 AI entries | hidden | M2 ✔ |
 | Menu: Clipchamp / Photos / Paint / Designer edit entries | hidden | M2 ✔ |
@@ -215,7 +215,57 @@ Fixed along the way:
 
 Verified on a dev build in an isolated profile, driven with real mouse and key input: instant folder sizes on C:\, E:\ and Program Files, `Ctrl+Shift+F` results with size, date and location, saving, updating and opening a workspace with both panes, the Git status column in this repository, tagging from the item menu and More ▸ Tags ▸ New tag, the sidebar tag view and untagging from it, finding duplicates and deleting copies from the results, comparing two folders, a left-to-right and a both-ways sync, and their undo and redo. Covered by tests: MFT record parsing, folder totals following changes, the v2 protocol, git status parsing and folder roll-up, the duplicate finder, compare states, sync plans, a sync through the real shell, and restoring a recycled file. **Not yet tried by hand:** the index sizes after a service restart on a busy disk, tags on network paths, a duplicate search over a whole drive, sync with elevation prompts or locked files, a workspace with many tabs on a second monitor.
 
-**M7: remote locations and plugins (next).**
+**Next: GitHub issues (planned 13 Nov 2026; #13 to #15 added the same day).** Work from the [issue list](https://github.com/jdc68/explorer-plus/issues), in this order. Quick fixes share one step; bigger problems get a step each. Close each issue when its step is verified.
+
+**I1: quick fixes.**
+- [#3](https://github.com/jdc68/explorer-plus/issues/3) Home as the start page. `AppSettings.StartLocation` already defaults to Home, but settings files from before M3 kept This PC. Bump `AppSettings.Format` to 2 and switch `StartLocation` to Home once; Settings still lets the user change it afterwards.
+- [#6](https://github.com/jdc68/explorer-plus/issues/6) Pin to Quick access. The native "Pin to Quick access" verb (`pintohome`) writes to File Explorer's Quick access, so nothing changes in Explorer+. Intercept it (as `FolderVerbs` does for other verbs) and route it to our own pins (`AppSettings.PinnedFolders`), so the two lists stay independent. Merge it with our "Pin to sidebar" entry under one name. Add "Unpin from Quick access" everywhere a pin shows (item menu, sidebar, Home), including the standard folders (Desktop, Downloads…), which need a "hidden standard folders" list in settings.
+- [#5](https://github.com/jdc68/explorer-plus/issues/5), first part: the gaps between items in the More menu. The redesign of every popup menu is I7.
+- [#12](https://github.com/jdc68/explorer-plus/issues/12) Windows stacking on the taskbar. Every window shares the process AppUserModelID (`JumpLists.AppId`), so they should already group. Check on the installed copy whether it reproduces, and whether the Start menu shortcut, a pinned taskbar icon and a dev profile (`ExplorerPlus.<profile>`) end up with different IDs. Close it if it is only the taskbar's "combine buttons" setting.
+- [#11](https://github.com/jdc68/explorer-plus/issues/11) New icon: the blue folder with the white clip from the issue. Build `Assets/ExplorerPlus.ico` with 16, 20, 24, 32, 40, 48, 64 and 256 px frames, simplify the clip at small sizes, and check it in the taskbar, title bar, Start menu, jump list and installed apps.
+- [#10](https://github.com/jdc68/explorer-plus/issues/10) README: what Explorer+ is, install (MSI, winget), the main features with their shortcuts, tips, Windows integration (default file manager, background mode, instant search service) and its known limits. Short, so the useful parts are easy to find; PLAN.md stays the detailed record.
+
+I1 done (13 Nov 2026, 0.1.9):
+- Settings format 2 switches `StartLocation` to Home once.
+- Windows' `pintohome` / `unpinfromhome` verbs are always hidden, even with Shift. "Pin to Quick access" / "Unpin from Quick access" (item menu, sidebar, Home's cross-folder menu) use Explorer+'s own pins. Unpinning a standard folder adds it to `HiddenQuickAccess`, and pinning it again removes it from there.
+- The More menu was the classic WPF menu, not Fluent's. `BasedOn="{StaticResource {x:Type ContextMenu}}"` in App.xaml runs before the Fluent theme is loaded, so it found the classic style: a light background with dark-theme separators and grey text on it, which read as gaps. The ContextMenu and ToolTip font styles are now built in code after `ThemeMode` is set (`App.UseTextFontInPopups`), based on Fluent's own. Every `MenuEntry` gets an icon slot, so entries line up.
+- New icon (all sizes 16 to 256), and the README.
+- #12 doesn't reproduce: two windows of one process share a taskbar button, and the pinned taskbar shortcut and the Start menu shortcut both carry the `ExplorerPlus` AppUserModelID. Left open for the user to say how they saw it.
+
+Verified on a dev build in an isolated profile: an old-format settings file opened on Home and was rewritten as format 2; the More menu in Fluent dark style; Windows' pin entry gone from the native menus; unpinning Videos (from Home's menu) and pinning `.chocolatey` (from a folder's menu), both stored and shown in the sidebar and Home at once. Not tried by hand: the new icon in the Start menu and installed apps after the install, and switching Light/Dark in Settings while a menu style is in use.
+
+**I2: views that don't draw, and smarter view picking.**
+- [#4](https://github.com/jdc68/explorer-plus/issues/4) The Videos folder stays empty until the window is resized; a context menu or other actions don't help. Likely the same family as the M6 fix (items arriving before the wrap panel knows them), this time on a view switch inside an open window: content-aware rules move Videos to large icons after listing. Reproduce in a dev profile, find what skips the measure, and add a regression check.
+- [#8](https://github.com/jdc68/explorer-plus/issues/8) Smart items display. Content-aware views exist since M2 (`ContentViewRules`, 60% threshold), so first find out why they didn't kick in for the user: a hand-set view in `views.json` winning, the setting off, folders counted against the threshold, or the view picked but not drawn (#4). Then tune: videos and pictures to medium or large icons, documents and code to details, music to details with album and artist, mixed folders to details. Make the rules visible and editable in Settings, as section 5 promises.
+
+**I3: folder sizes that don't show.**
+- [#1](https://github.com/jdc68/explorer-plus/issues/1) Some non-empty folders show no size. Find which path misses them: index answers (`FolderSizesRequest`), the fallback walk (`FolderSizeService`), or the lazy loading for visible items (`FolderSizeWatcher`). Suspects: folders the index doesn't cover or answers with nothing (reparse points, hard links, access denied, folders created after the scan), answers that arrive after the row was recycled by virtualization, and errors swallowed on the way. Log every folder that ends with no size and why, fix each cause, and add tests where the index or walk is at fault.
+
+**I4: the drag image that stays on screen.**
+- [#14](https://github.com/jdc68/explorer-plus/issues/14) After a file is dragged from Explorer+ into another app (Telegram in the screenshot), the drag image stays on screen after the drop, still labelled "Move to kat_song". That label is the drop description from Explorer+'s own window, so the drop-target helper there was likely entered and never left: `MainWindow.DragDrop` calls `IDropTargetHelper.DragEnter` once (`_helperEntered`) and only calls `DragLeave` on what `OnWindowDragLeave` counts as a real exit from the window, and the hovered folder's shell drop target gets its `Leave` the same way. Reproduce with Telegram, a browser and another Explorer+ window as targets, make sure every enter has a matching leave or drop (also when the pointer leaves fast or over a child window), and clear the drop description when the drag leaves. Check that dragging to File Explorer and to the desktop still shows the right labels.
+
+**I5: GitHub releases.**
+- [#13](https://github.com/jdc68/explorer-plus/issues/13) Publish each chosen version as a GitHub release with the MSI attached. Add a `-Release` switch to `installer/build.ps1`: after a successful build, tag the commit `v<version>`, run `gh release create` with the MSI and short notes (the commits since the last tag), then pass the release asset's URL as `-InstallerUrl` so the winget manifests are complete. Every `build.ps1` run bumps the patch version, so not every build becomes a release: only on request, and each one asks the user first, since a release is public. The README's Install section then points to the latest release. Decide with the user: who writes the release notes, and whether the winget manifests get submitted too.
+
+**I6: search while typing.**
+- [#7](https://github.com/jdc68/explorer-plus/issues/7) Typing in the search box filters the current folder, and only Enter starts a search. Make typing search too: keep the instant filter for the current folder, and after a short pause (about 300 ms) with no key, open the search (instant search when the service covers the folder, Windows Search otherwise). Instant-search tabs already re-search 150 ms after the last key. Decide with the user: whether the results replace the current tab or open as a results view that Esc or clearing the box leaves, a minimum query length, and how Windows Search's slower results avoid running on every pause.
+
+**I7: themed menus and popups.**
+- [#5](https://github.com/jdc68/explorer-plus/issues/5), second part: every WPF menu and popup (More, column header menu, history, Tags, the transfers button, our own cross-folder item menu, tab menu) gets one designed style: Fluent spacing, icons in one column, shortcuts right-aligned, separators, hover and pressed states, rounded corners and shadow, and colours that follow light, dark and accent changes live. The native shell context menus stay Windows' own. Check the other `BasedOn="{StaticResource {x:Type Button}}"` styles in App.xaml (`IconButton`, `CommandButton`) too: like the ContextMenu style fixed in I1, they probably build on the classic style instead of Fluent's.
+
+**I8: a better This PC page.**
+- [#2](https://github.com/jdc68/explorer-plus/issues/2) Drives as tiles: icon, label and letter, a usage bar (accent colour, red past 90% full), and "X free of Y". Group drives, network locations and devices, keep one entry per volume (section 5), and keep the details view with Total size / Free space as a choice. The bar should also follow free-space changes while the page is open.
+
+**I9: frequent folders in the sidebar.**
+- [#15](https://github.com/jdc68/explorer-plus/issues/15) Show frequently opened folders under Quick access, as File Explorer does. Not built yet: section 5 cut "auto-added frequent folders" (M3), and this issue brings them back, so they become a setting (Settings ▸ Navigation pane and Home ▸ "Show frequent folders"). Explorer+ keeps its own history, separate from File Explorer's, as with the pins (#6): a visit count and last visit per folder, ranked by how often and how recently (today's `RecentFolders` keeps only the last 10, for the jump list). Show the top few below the pins, with "Pin to Quick access" and "Remove from frequent" on right-click, and the same list in Home's Quick access section. Leave out the Recycle Bin, temp folders, search and tag views, and drives that are offline. Decide with the user: on or off by default, how many to show, and whether to start from File Explorer's own frequent list (readable through the Quick access shell folder) or empty.
+
+**I10: Save and Open dialogs (research first).**
+- [#9](https://github.com/jdc68/explorer-plus/issues/9) Browsers and other apps open Windows' own Save and Open dialogs (the common item dialog, `IFileDialog`), which run inside those apps and use Explorer's code. The default-file-manager registration can't change that (section 4, known limits), and replacing the dialog itself would mean injecting into every process, which is off the table. Options to weigh with the user before building anything:
+  - A dialog helper: Explorer+ notices a file dialog in the foreground (UI Automation or a `WinEvent` hook, no injection) and offers its open folders, pins and recent folders; picking one sends the path to the dialog's address field. This is how Listary and similar tools work.
+  - A hotkey in the dialog that jumps it to the folder in the active Explorer+ window.
+  - "Show in folder" after a download is a different path (`SHOpenFolderAndSelectItems`, or the browser starting `explorer.exe`); check by hand whether it reaches Explorer+ with the default file manager on (still untried, see M4).
+
+**M7: remote locations and plugins (postponed; future plan, not scheduled).** Comes after the issue steps above.
 - SFTP, WebDAV and S3 as locations in the sidebar and address bar, listed and browsed like folders, with copy, move and delete going through the same queue.
 - A plugin API: columns, preview handlers, item menu commands and locations from separate assemblies.
 

@@ -267,19 +267,9 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         }
     }
 
-    public void Pin(string path)
-    {
-        var pins = AppSettings.Current.PinnedFolders;
-        if (pins.Any(p => string.Equals(p, path, StringComparison.OrdinalIgnoreCase))) return;
-        pins.Add(path);
-        AppSettings.Current.NotifyChanged();
-    }
+    public void Pin(string path) => QuickAccess.Pin(path);
 
-    public void Unpin(string path)
-    {
-        AppSettings.Current.PinnedFolders.RemoveAll(p => string.Equals(p, path, StringComparison.OrdinalIgnoreCase));
-        AppSettings.Current.NotifyChanged();
-    }
+    public void Unpin(string path) => QuickAccess.Unpin(path);
 
     /// <summary>Highlights the entry matching the current location, if it is a top-level entry.</summary>
     public void SyncSelection(ShellLocation? location)

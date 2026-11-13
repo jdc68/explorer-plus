@@ -15,22 +15,52 @@ public static class QuickAccess
         void Known(string name, string? path)
         {
             if (string.IsNullOrEmpty(path) || !Directory.Exists(path) || ShellFilter.Default.IsBlocked(null, path)) return;
+            if (AppSettings.Current.HiddenQuickAccess.Any(h => SamePath(h, path))) return;
             list.Add((name, path, false));
         }
-        Known("Desktop", Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory));
-        Known("Downloads", KnownFolderPath(DownloadsId));
-        Known("Documents", Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments));
-        Known("Pictures", Environment.GetFolderPath(Environment.SpecialFolder.MyPictures));
-        Known("Music", Environment.GetFolderPath(Environment.SpecialFolder.MyMusic));
-        Known("Videos", Environment.GetFolderPath(Environment.SpecialFolder.MyVideos));
+        foreach (var (name, path) in StandardFolders()) Known(name, path);
         foreach (var pin in AppSettings.Current.PinnedFolders)
         {
-            if (!Directory.Exists(pin) || list.Any(e => string.Equals(e.Item2, pin, StringComparison.OrdinalIgnoreCase))) continue;
+            if (!Directory.Exists(pin) || list.Any(e => SamePath(e.Item2, pin))) continue;
             var name = Path.GetFileName(pin.TrimEnd('\\'));
             list.Add((string.IsNullOrEmpty(name) ? pin : name, pin, true));
         }
         return list;
     }
+
+    public static bool IsShown(string path) => Entries().Any(e => SamePath(e.Path, path));
+
+    // Explorer+'s own pins, separate from File Explorer's Quick access
+    public static void Pin(string path)
+    {
+        var settings = AppSettings.Current;
+        settings.HiddenQuickAccess.RemoveAll(h => SamePath(h, path));
+        if (!IsStandard(path) && !settings.PinnedFolders.Any(p => SamePath(p, path))) settings.PinnedFolders.Add(path);
+        settings.NotifyChanged();
+    }
+
+    public static void Unpin(string path)
+    {
+        var settings = AppSettings.Current;
+        settings.PinnedFolders.RemoveAll(p => SamePath(p, path));
+        if (IsStandard(path) && !settings.HiddenQuickAccess.Any(h => SamePath(h, path))) settings.HiddenQuickAccess.Add(path);
+        settings.NotifyChanged();
+    }
+
+    private static bool IsStandard(string path) => StandardFolders().Any(f => f.Path is not null && SamePath(f.Path, path));
+
+    private static IEnumerable<(string Name, string? Path)> StandardFolders()
+    {
+        yield return ("Desktop", Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory));
+        yield return ("Downloads", KnownFolderPath(DownloadsId));
+        yield return ("Documents", Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments));
+        yield return ("Pictures", Environment.GetFolderPath(Environment.SpecialFolder.MyPictures));
+        yield return ("Music", Environment.GetFolderPath(Environment.SpecialFolder.MyMusic));
+        yield return ("Videos", Environment.GetFolderPath(Environment.SpecialFolder.MyVideos));
+    }
+
+    private static bool SamePath(string a, string b) =>
+        string.Equals(a.TrimEnd('\\'), b.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
 
     /// <summary>For Home: the same folders, plus pins that are offline right now (Home skips what doesn't answer).</summary>
     public static IReadOnlyList<string> Paths() =>

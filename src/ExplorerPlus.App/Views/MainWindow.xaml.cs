@@ -502,7 +502,7 @@ public partial class MainWindow : Window
         menu.Items.Add(new Separator());
         menu.Items.Add(MenuEntry("Select all", "Ctrl+A", () => FileList.SelectAll(), ""));
         menu.Items.Add(MenuEntry("Select none", null, () => FileList.UnselectAll(), ""));
-        menu.Items.Add(MenuEntry("Invert selection", null, InvertSelection, null));
+        menu.Items.Add(MenuEntry("Invert selection", null, InvertSelection, ""));
         menu.Items.Add(new Separator());
         var batch = MenuEntry("Rename selected items…", FileList.SelectedItems.Count > 1 ? "F2" : "Ctrl+Shift+F2", () => ShowBatchRename(Selection), "");
         batch.IsEnabled = FileList.SelectedItems.Count > 0;
@@ -513,7 +513,7 @@ public partial class MainWindow : Window
         menu.Items.Add(MenuEntry("Command palette", "Ctrl+K", ShowPalette, ""));
         menu.Items.Add(new Separator());
         menu.Items.Add(MenuEntry("Open terminal as administrator", null, async () => await ViewModel.OpenTerminalAsync(elevated: true), ""));
-        menu.Items.Add(MenuEntry("Open in new window", "Ctrl+N", NewWindowHere, null));
+        menu.Items.Add(MenuEntry("Open in new window", "Ctrl+N", NewWindowHere, ""));
         menu.Items.Add(WorkspacesMenu());
         menu.Items.Add(TagsMenu(Selection));
         menu.Items.Add(MenuEntry("Find duplicate files", null, FindDuplicates, "\uE8C8"));
@@ -524,14 +524,15 @@ public partial class MainWindow : Window
         menu.Items.Add(MenuEntry("Empty Recycle Bin", null, ViewModel.EmptyRecycleBin, "\uE74D"));
         menu.Items.Add(new Separator());
         menu.Items.Add(MenuEntry("Settings", "Ctrl+,", ShowSettings, "\uE713"));
-        menu.Items.Add(MenuEntry("Exit", null, App.ExitAll, null));
+        menu.Items.Add(MenuEntry("Exit", null, App.ExitAll, ""));
         menu.IsOpen = true;
     }
 
     private static MenuItem MenuEntry(string header, string? gesture, Action action, string? glyph)
     {
         var item = new MenuItem { Header = header, InputGestureText = gesture ?? "" };
-        if (glyph is not null) item.Icon = new TextBlock { Text = glyph, FontFamily = (FontFamily)Application.Current.Resources["IconFont"] };
+        // an empty icon too, or entries without one start further left than the rest
+        item.Icon = new TextBlock { Text = glyph ?? "", FontFamily = (FontFamily)Application.Current.Resources["IconFont"] };
         item.Click += (_, _) => action();
         return item;
     }
@@ -926,8 +927,8 @@ public partial class MainWindow : Window
         }
         if (items.Count == 1 && items[0] is { IsFolder: true, Entry.Path: { } folderPath })
         {
-            var pinned = AppSettings.Current.PinnedFolders.Any(p => string.Equals(p, folderPath, StringComparison.OrdinalIgnoreCase));
-            custom.Add(new CustomMenuItem { Text = pinned ? "Unpin from sidebar" : "Pin to sidebar", Id = pinned ? CmdUnpin : CmdPin });
+            var pinned = QuickAccess.IsShown(folderPath);
+            custom.Add(new CustomMenuItem { Text = pinned ? "Unpin from Quick access" : "Pin to Quick access", Id = pinned ? CmdUnpin : CmdPin });
         }
         AddM3Entries(custom, items);
 
@@ -1054,6 +1055,12 @@ public partial class MainWindow : Window
             menu.Items.Add(MenuEntry("Compress to ZIP file", null, async () => await ViewModel.CompressAsync(items, ArchiveFormat.Zip), null));
             menu.Items.Add(TagsMenu(items));
         }
+        if (items.Count == 1 && items[0] is { IsFolder: true, Entry.Path: { } folderPath })
+        {
+            var pinned = QuickAccess.IsShown(folderPath);
+            menu.Items.Add(MenuEntry(pinned ? "Unpin from Quick access" : "Pin to Quick access", null,
+                () => { if (pinned) QuickAccess.Unpin(folderPath); else QuickAccess.Pin(folderPath); }, null));
+        }
         if (items.Any(i => i.Entry.RecentLink is not null))
             menu.Items.Add(MenuEntry("Remove from Recent", null, async () => await ViewModel.RemoveFromRecentAsync(items), null));
         menu.Items.Add(new Separator());
@@ -1126,8 +1133,14 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Bloat filter for native menus; Shift+right-click shows everything.</summary>
-    private static Func<string?, string, bool>? MenuFilter =>
-        Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? null : AppSettings.Current.IsMenuItemHidden;
+    // File Explorer's own Quick access pins never show, even with Shift: ours replace them
+    private static Func<string?, string, bool> MenuFilter =>
+        Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)
+            ? (verb, _) => IsExplorerPinVerb(verb)
+            : (verb, text) => IsExplorerPinVerb(verb) || AppSettings.Current.IsMenuItemHidden(verb, text);
+
+    private static bool IsExplorerPinVerb(string? verb) =>
+        verb is not null && (verb.Equals("pintohome", StringComparison.OrdinalIgnoreCase) || verb.Equals("unpinfromhome", StringComparison.OrdinalIgnoreCase));
 
     private void InvokeVerbOn(IReadOnlyList<ItemViewModel> items, string verb)
     {
@@ -1194,8 +1207,8 @@ public partial class MainWindow : Window
         };
         if (folder.FileSystemPath is { } path && folder is not SidebarDrive)
         {
-            var pinned = folder.IsPinned || AppSettings.Current.PinnedFolders.Any(p => string.Equals(p, path, StringComparison.OrdinalIgnoreCase));
-            custom.Add(new CustomMenuItem { Text = pinned ? "Unpin from sidebar" : "Pin to sidebar", Id = pinned ? CmdUnpin : CmdPin });
+            var pinned = QuickAccess.IsShown(path);
+            custom.Add(new CustomMenuItem { Text = pinned ? "Unpin from Quick access" : "Pin to Quick access", Id = pinned ? CmdUnpin : CmdPin });
         }
         if (folder.FileSystemPath is { } starPath)
             custom.Add(new CustomMenuItem { Text = Stars.IsStarred(starPath) ? "Remove from Starred" : "Add to Starred", Id = CmdStar });

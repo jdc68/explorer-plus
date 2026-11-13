@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Explorer+ is a Windows 11 File Explorer replacement (WPF on .NET 9, Windows only). [PLAN.md](PLAN.md) is the source of truth for goals, decisions agreed with the user, milestone status (M1 to M6 done; M7, remote locations and plugins, is next) and the performance budget. Read it before adding features. Its section 5 lists choices that must not be undone (no OneDrive integration, drives deduplicated by volume GUID, hidden context-menu entries, content-aware views).
+Explorer+ is a Windows 11 File Explorer replacement (WPF on .NET 9, Windows only). [PLAN.md](PLAN.md) is the source of truth for goals, decisions agreed with the user, milestone status (M1 to M6 done; next are the steps I2 to I10 built from the GitHub issues (I1 is done); M7, remote locations and plugins, is postponed) and the performance budget. Read it before adding features. Its section 5 lists choices that must not be undone (no OneDrive integration, drives deduplicated by volume GUID, hidden context-menu entries, content-aware views).
 
 ## Commands
 

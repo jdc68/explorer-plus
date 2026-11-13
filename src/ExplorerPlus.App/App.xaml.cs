@@ -105,13 +105,29 @@ public partial class App : Application
         Current.Dispatcher.BeginInvoke(Background.Trim, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
     }
 
-    public static void ApplyTheme() =>
+    public static void ApplyTheme()
+    {
         Current.ThemeMode = AppSettings.Current.Theme switch
         {
             "Light" => ThemeMode.Light,
             "Dark" => ThemeMode.Dark,
             _ => ThemeMode.System,
         };
+        UseTextFontInPopups();
+    }
+
+    // Menus and tooltips of icon buttons would inherit the icon font and show boxes. Built here, not in App.xaml:
+    // there BasedOn finds the classic style, because the Fluent theme isn't loaded yet
+    private static void UseTextFontInPopups()
+    {
+        foreach (var type in new[] { typeof(System.Windows.Controls.ContextMenu), typeof(System.Windows.Controls.ToolTip) })
+        {
+            Current.Resources.Remove(type);
+            var style = new Style(type, Current.TryFindResource(type) as Style);
+            style.Setters.Add(new Setter(System.Windows.Controls.Control.FontFamilyProperty, SystemFonts.MessageFontFamily));
+            Current.Resources[type] = style;
+        }
+    }
 
     private static void HandleCommandLine(string[] args, bool fromOtherInstance)
     {
