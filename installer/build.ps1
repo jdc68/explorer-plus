@@ -114,6 +114,9 @@ $out = Join-Path $root "artifacts\installer"
 if (Test-Path $publish) { Remove-Item $publish -Recurse -Force }
 
 Write-Host "Publishing Explorer+ $Version ($Arch)..."
+# after a plain build the WPF temp project reuses a restore without this runtime (NETSDK1047)
+dotnet restore (Join-Path $root "src\ExplorerPlus.App\ExplorerPlus.App.csproj") -r "win-$Arch" -p:PublishReadyToRun=true
+if ($LASTEXITCODE -ne 0) { throw "dotnet restore failed" }
 dotnet publish (Join-Path $root "src\ExplorerPlus.App\ExplorerPlus.App.csproj") -c Release -r "win-$Arch" --self-contained false `
     -p:PublishReadyToRun=true -p:Version=$Version -p:DebugType=none -o $publish
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
