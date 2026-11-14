@@ -136,6 +136,7 @@ public sealed class ItemViewModel : ObservableObject
             _props[k] = driveOnly && !isDrive ? PropertyValue.Empty : values.GetValueOrDefault(k, PropertyValue.Empty);
             _pendingProps?.Remove(k);
         }
+        if (isDrive) PutDriveProperties(_props);
         OnPropertyChanged("Item[]");
     }
 
@@ -161,6 +162,8 @@ public sealed class ItemViewModel : ObservableObject
                 catch { }
                 if (state is { } s) value = new PropertyValue(GitStatus.Label(s), (int)s);
             }
+            else if (k == ColumnCatalog.SpaceUsed && HasSpaceInfo)
+                value = new PropertyValue(UsedFraction.ToString("P0"), UsedFraction);
             _props ??= new Dictionary<string, PropertyValue>(StringComparer.OrdinalIgnoreCase);
             _props[k] = value;
             _pendingProps?.Remove(k);
@@ -193,6 +196,80 @@ public sealed class ItemViewModel : ObservableObject
     }
 
     public bool IsTagged(string tag) => Tags.Has(_entry.Path, tag);
+
+    // ---------- Drives (This PC) ----------
+
+    private (ulong Total, ulong Free)? _space;
+    private DriveFacts? _facts;
+
+    public bool IsDrive => DriveService.IsDriveRoot(_entry.Path);
+
+    public bool HasSpaceInfo => _space is not null;
+
+    public ulong DriveTotal => _space?.Total ?? 0;
+
+    public ulong DriveFree => _space?.Free ?? 0;
+
+    public double UsedFraction => _space is { } s ? Math.Clamp(1.0 - (double)s.Free / s.Total, 0, 1) : 0;
+
+    public GridLength UsedLength => new(UsedFraction, GridUnitType.Star);
+
+    public GridLength FreeLength => new(1 - UsedFraction, GridUnitType.Star);
+
+    public bool IsAlmostFull => HasSpaceInfo && UsedFraction >= 0.9;
+
+    public string SpaceText => _space is { } s ? $"{FormatSizeShort((long)s.Free)} free of {FormatSizeShort((long)s.Total)}" : "";
+
+    public string DriveSummary => _facts?.Summary ?? "";
+
+    public string? DriveToolTip
+    {
+        get
+        {
+            if (_space is null && _facts is null) return null;
+            var lines = new List<string> { DisplayName };
+            if (_space is { } s)
+                lines.Add($"{FormatSizeShort((long)(s.Total - s.Free))} used, {SpaceText} ({UsedFraction:P0} full)");
+            var kind = string.Join(" · ", new[] { _facts?.Media, _facts?.FileSystem }.Where(t => !string.IsNullOrEmpty(t)));
+            if (kind.Length > 0) lines.Add(kind);
+            if (_facts?.Model is { } model) lines.Add(model);
+            if (_facts is { RecycleBinItems: > 0 } f)
+                lines.Add($"Recycle Bin: {FormatSizeShort(f.RecycleBinBytes)} in {f.RecycleBinItems:N0} item{(f.RecycleBinItems == 1 ? "" : "s")}");
+            return string.Join("\n", lines);
+        }
+    }
+
+    public void SetDriveSpace((ulong Total, ulong Free)? space)
+    {
+        if (_space == space) return;
+        _space = space;
+        if (_props is not null) PutDriveProperties(_props);
+        OnPropertyChanged(nameof(HasSpaceInfo));
+        OnPropertyChanged(nameof(UsedFraction));
+        OnPropertyChanged(nameof(UsedLength));
+        OnPropertyChanged(nameof(FreeLength));
+        OnPropertyChanged(nameof(IsAlmostFull));
+        OnPropertyChanged(nameof(SpaceText));
+        OnPropertyChanged(nameof(DriveToolTip));
+        OnPropertyChanged("Item[]");
+    }
+
+    public void SetDriveFacts(DriveFacts facts)
+    {
+        if (_facts == facts) return;
+        _facts = facts;
+        OnPropertyChanged(nameof(DriveSummary));
+        OnPropertyChanged(nameof(DriveToolTip));
+    }
+
+    // the columns follow the live numbers rather than what the shell said when they were first read
+    private void PutDriveProperties(Dictionary<string, PropertyValue> props)
+    {
+        if (_space is not { } s) return;
+        foreach (var (key, bytes) in new[] { ("System.Capacity", s.Total), ("System.FreeSpace", s.Free) })
+            if (props.ContainsKey(key)) props[key] = new PropertyValue(FormatSizeShort((long)bytes), (long)bytes);
+        if (props.ContainsKey(ColumnCatalog.SpaceUsed)) props[ColumnCatalog.SpaceUsed] = new PropertyValue(UsedFraction.ToString("P0"), UsedFraction);
+    }
 
     // ---------- Grouping (set by the tab before the list is published) ----------
 

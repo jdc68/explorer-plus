@@ -98,6 +98,7 @@ public static class VolumeNative
     public const uint FSCTL_ENUM_USN_DATA = 0x000900B3;
     public const uint FSCTL_READ_USN_JOURNAL = 0x000900BB;
     public const uint FSCTL_CREATE_USN_JOURNAL = 0x000900E7;
+    public const uint IOCTL_STORAGE_QUERY_PROPERTY = 0x002D1400;
     public const uint FSCTL_QUERY_USN_JOURNAL = 0x000900F4;
 
     public const uint GENERIC_READ = 0x80000000;

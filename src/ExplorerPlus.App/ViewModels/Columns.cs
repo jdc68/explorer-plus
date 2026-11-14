@@ -19,6 +19,7 @@ public static class ColumnCatalog
     public const string Folder = "System.ItemFolderPathDisplay";
     public const string Git = "ExplorerPlus.Git";
     public const string Tags = "ExplorerPlus.Tags";
+    public const string SpaceUsed = "ExplorerPlus.SpaceUsed";
 
     // Date taken, or Date created when the picture has none
     public const string PictureDate = "ExplorerPlus.PictureDate";
@@ -70,6 +71,7 @@ public static class ColumnCatalog
         new("System.Software.ProductName", "Product name", 160, Category: "Programs"),
         new("System.Capacity", "Total size", 110, RightAlign: true, Category: "Drives"),
         new("System.FreeSpace", "Free space", 110, RightAlign: true, Category: "Drives"),
+        new(SpaceUsed, "Space used", 150, Category: "Drives"),
         new("System.Recycle.DeletedFrom", "Original location", 240, Category: "Recycle Bin"),
         new("System.Recycle.DateDeleted", "Date deleted", 160, Category: "Recycle Bin"),
     ];
@@ -80,7 +82,7 @@ public static class ColumnCatalog
 
     public static List<string> DefaultFor(FolderContent content, LocationKind kind) => kind switch
     {
-        LocationKind.ThisPC => [Name, Type, "System.Capacity", "System.FreeSpace"],
+        LocationKind.ThisPC => [Name, Type, "System.Capacity", "System.FreeSpace", SpaceUsed],
         LocationKind.Home => [Name, Modified, Folder],
         LocationKind.Search => [Name, Modified, Type, Size, Folder],
         LocationKind.RecycleBin => [Name, "System.Recycle.DeletedFrom", "System.Recycle.DateDeleted", Size, Type],

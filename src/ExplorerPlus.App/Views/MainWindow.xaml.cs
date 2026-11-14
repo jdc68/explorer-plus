@@ -1006,6 +1006,7 @@ public partial class MainWindow : Window
     private const int CmdSortBase = ShellContextMenu.FirstCustomId + 100;
     private const int CmdGroupBase = ShellContextMenu.FirstCustomId + 150;
     private const int CmdGroupNone = ShellContextMenu.FirstCustomId + 32;
+    private const int CmdGroupSection = ShellContextMenu.FirstCustomId + 33;
     private const int CmdSortAsc = ShellContextMenu.FirstCustomId + 30;
     private const int CmdSortDesc = ShellContextMenu.FirstCustomId + 31;
 
@@ -1232,6 +1233,8 @@ public partial class MainWindow : Window
         sortItems.Add(CustomMenuItem.Separator);
         sortItems.Add(new CustomMenuItem { Text = "Ascending", Id = CmdSortAsc, IsChecked = tab.SortAscending });
         sortItems.Add(new CustomMenuItem { Text = "Descending", Id = CmdSortDesc, IsChecked = !tab.SortAscending });
+        if (SectionGroupLabel(tab) is { } sections)
+            groupItems.Add(new CustomMenuItem { Text = sections, Id = CmdGroupSection, IsChecked = tab.GroupBy == ColumnCatalog.Section });
         groupItems.Add(CustomMenuItem.Separator);
         groupItems.Add(new CustomMenuItem { Text = "(None)", Id = CmdGroupNone, IsChecked = tab.GroupBy is null });
 
@@ -1256,6 +1259,9 @@ public partial class MainWindow : Window
                 break;
             case MenuResultKind.Custom when result.CustomId == CmdGroupNone:
                 tab.SetGroupBy(null);
+                break;
+            case MenuResultKind.Custom when result.CustomId == CmdGroupSection:
+                tab.SetGroupBy(ColumnCatalog.Section);
                 break;
             case MenuResultKind.Custom when result.CustomId == CmdSortAsc:
                 tab.SortBy(tab.SortKey, true);

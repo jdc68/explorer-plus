@@ -40,13 +40,13 @@ public sealed class FolderEntry
     /// <summary>The extension-based icon may be wrong (exe, lnk, ico, customised folders): fetch the real one.</summary>
     public bool NeedsRealIcon { get; init; }
 
-    /// <summary>Home only: the section the item is listed in ("Quick access", "Starred", "Recent files").</summary>
+    /// <summary>Home, This PC and duplicates: the section the item is listed in ("Quick access", "Devices and drives").</summary>
     public string? Section { get; set; }
 
-    /// <summary>Home only: order of the section on the page.</summary>
+    /// <summary>Order of the section on the page.</summary>
     public int SectionRank { get; set; }
 
-    /// <summary>Home only: position inside the section (pin order, most recent first).</summary>
+    /// <summary>Position inside the section (pin order, most recent first, drive letter).</summary>
     public int SectionOrder { get; set; }
 
     /// <summary>Home only: the Recent folder shortcut this item was found through.</summary>

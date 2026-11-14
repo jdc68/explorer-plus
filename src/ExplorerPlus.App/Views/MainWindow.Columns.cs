@@ -19,7 +19,7 @@ public partial class MainWindow
         [ViewMode.MediumIcons] = new(92, 106),
         [ViewMode.SmallIcons] = new(240, 30),
         [ViewMode.List] = new(260, 30),
-        [ViewMode.Tiles] = new(300, 76),
+        [ViewMode.Tiles] = new(300, 80),
     };
 
     private void InitColumns(FilePane pane)
@@ -42,6 +42,12 @@ public partial class MainWindow
             Tag = id, Content = def.Header, Padding = new Thickness(8, 0, 0, 0),
             HorizontalContentAlignment = HorizontalAlignment.Left,
         };
+        if (id == ColumnCatalog.SpaceUsed)
+        {
+            var bar = new GridViewColumn { Header = header, Width = def.Width, CellTemplate = (DataTemplate)FindResource("SpaceUsedCell") };
+            ((INotifyPropertyChanged)bar).PropertyChanged += (s, e) => OnColumnPropertyChanged(pane, s, e);
+            return pane.ColumnCache[id] = bar;
+        }
         var text = new FrameworkElementFactory(typeof(TextBlock));
         var path = id == ColumnCatalog.Created ? nameof(ItemViewModel.CreatedText) : $"[{id}]";
         text.SetBinding(TextBlock.TextProperty, new Binding(path) { Mode = BindingMode.OneWay });
@@ -162,10 +168,20 @@ public partial class MainWindow
         var group = new MenuItem { Header = "Group by" };
         foreach (var (id, header) in SortChoices(tab))
             group.Items.Add(MenuCheck(header, tab.GroupBy == id, () => tab.SetGroupBy(id)));
+        if (SectionGroupLabel(tab) is { } sections)
+            group.Items.Add(MenuCheck(sections, tab.GroupBy == ColumnCatalog.Section, () => tab.SetGroupBy(ColumnCatalog.Section)));
         group.Items.Add(new Separator());
         group.Items.Add(MenuCheck("(None)", tab.GroupBy is null, () => tab.SetGroupBy(null)));
         return group;
     }
+
+    // Home's sections and This PC's categories aren't a column, so they're offered on their own
+    private static string? SectionGroupLabel(TabViewModel tab) => tab.Kind switch
+    {
+        LocationKind.Home => "Section",
+        LocationKind.ThisPC => "Category",
+        _ => null,
+    };
 
     /// <summary>Turns grouping on the list on or off to match the tab, with a group panel suited to the layout.</summary>
     private void ApplyGrouping(FilePane pane, ViewMode mode)

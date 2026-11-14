@@ -7,6 +7,9 @@ public static class Shell32
     private const string Dll = "shell32.dll";
 
     [DllImport(Dll, CharSet = CharSet.Unicode)]
+    public static extern int SHQueryRecycleBinW(string? pszRootPath, ref SHQUERYRBINFO pSHQueryRBInfo);
+
+    [DllImport(Dll, CharSet = CharSet.Unicode)]
     public static extern int SHParseDisplayName(string pszName, IntPtr pbc, out IntPtr ppidl, uint sfgaoIn, out uint psfgaoOut);
 
     [DllImport(Dll)]
@@ -104,6 +107,14 @@ public static class Shell32
     [DllImport(Dll, EntryPoint = "#660")]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool FileIconInit([MarshalAs(UnmanagedType.Bool)] bool fRestoreCache);
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public struct SHQUERYRBINFO
+{
+    public int cbSize;
+    public long i64Size;
+    public long i64NumItems;
 }
 
 public static class Kernel32

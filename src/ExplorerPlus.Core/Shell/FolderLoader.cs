@@ -35,6 +35,8 @@ public static class FolderLoader
             : location.IsFileSystemFolder
             ? Task.Factory.StartNew(() => Produce(FastFolderEnumerator.Enumerate(location.FileSystemPath!, ct), channel.Writer, ct),
                 ct, TaskCreationOptions.LongRunning, TaskScheduler.Default)
+            : location.IsThisPC
+            ? StaWorkerPool.Enumeration.Run(() => Produce(ThisPc.Arrange(ShellFolderEnumerator.Enumerate(location.Pidl, ct)), channel.Writer, ct), ct)
             : StaWorkerPool.Enumeration.Run(() => Produce(ShellFolderEnumerator.Enumerate(location.Pidl, ct), channel.Writer, ct), ct);
 
         _ = producer.ContinueWith(t => channel.Writer.TryComplete(t.Exception?.GetBaseException()), TaskScheduler.Default);

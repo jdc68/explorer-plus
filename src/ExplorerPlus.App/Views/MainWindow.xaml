@@ -152,7 +152,7 @@
             <views:VirtualizingWrapPanel ItemWidth="260" ItemHeight="30" Orientation="Vertical" />
         </ItemsPanelTemplate>
         <ItemsPanelTemplate x:Key="TilesPanel">
-            <views:VirtualizingWrapPanel ItemWidth="300" ItemHeight="76" />
+            <views:VirtualizingWrapPanel ItemWidth="300" ItemHeight="80" />
         </ItemsPanelTemplate>
         <ItemsPanelTemplate x:Key="ContentPanel">
             <VirtualizingStackPanel />
@@ -199,8 +199,41 @@
             </DockPanel>
         </DataTemplate>
 
+        <!-- Used space of a drive: accent, red from 90% full -->
+        <DataTemplate x:Key="SpaceBar" DataType="{x:Type vm:ItemViewModel}">
+            <Border Height="6" CornerRadius="3" Background="{DynamicResource ControlStrongFillColorDisabledBrush}" ClipToBounds="True"
+                    SnapsToDevicePixels="True">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="{Binding UsedLength}" />
+                        <ColumnDefinition Width="{Binding FreeLength}" />
+                    </Grid.ColumnDefinitions>
+                    <Border CornerRadius="3">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="{DynamicResource AccentFillColorDefaultBrush}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsAlmostFull}" Value="True">
+                                        <Setter Property="Background" Value="#D13438" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                    </Border>
+                </Grid>
+            </Border>
+        </DataTemplate>
+
+        <DataTemplate x:Key="SpaceUsedCell" DataType="{x:Type vm:ItemViewModel}">
+            <DockPanel Visibility="{Binding HasSpaceInfo, Converter={StaticResource BoolToVis}}">
+                <TextBlock DockPanel.Dock="Right" Text="{Binding UsedFraction, StringFormat=P0}" Width="38" TextAlignment="Right" Margin="6,0,8,0"
+                           Foreground="{DynamicResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
+                <ContentControl Content="{Binding}" ContentTemplate="{StaticResource SpaceBar}" Focusable="False" VerticalAlignment="Center" />
+            </DockPanel>
+        </DataTemplate>
+
         <DataTemplate x:Key="TileTemplate" DataType="{x:Type vm:ItemViewModel}">
-            <DockPanel Opacity="{Binding ItemOpacity}" VerticalAlignment="Center">
+            <DockPanel Opacity="{Binding ItemOpacity}" VerticalAlignment="Center" ToolTip="{Binding DriveToolTip}">
                 <Grid DockPanel.Dock="Left" Width="48" Height="48" Margin="2,0,10,0">
                     <Image Source="{Binding LargeImage}" Stretch="Uniform" StretchDirection="DownOnly" RenderOptions.BitmapScalingMode="HighQuality" />
                     <CheckBox Style="{StaticResource ItemCheckBox}" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="-4,-4,0,0" />
@@ -212,8 +245,17 @@
                         <TextBox Style="{StaticResource RenameBox}" Margin="-4,0,0,0"
                                  IsVisibleChanged="OnRenameBoxVisible" PreviewKeyDown="OnRenameBoxKeyDown" LostKeyboardFocus="OnRenameBoxLostFocus" />
                     </Grid>
-                    <TextBlock Text="{Binding TypeName}" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
-                    <TextBlock Text="{Binding SizeText}" Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                    <StackPanel Visibility="{Binding HasSpaceInfo, Converter={StaticResource InverseBoolToVis}}">
+                        <TextBlock Text="{Binding TypeName}" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                        <TextBlock Text="{Binding SizeText}" Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
+                    <!-- drives on This PC: how full, and what kind of disk -->
+                    <StackPanel Visibility="{Binding HasSpaceInfo, Converter={StaticResource BoolToVis}}" Margin="0,0,6,0">
+                        <ContentControl Content="{Binding}" ContentTemplate="{StaticResource SpaceBar}" Focusable="False" Margin="0,4,0,3" />
+                        <TextBlock Text="{Binding SpaceText}" FontSize="12" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                        <TextBlock Text="{Binding DriveSummary}" FontSize="12" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource TextFillColorTertiaryBrush}"
+                                   Visibility="{Binding DriveSummary, Converter={StaticResource NonEmptyToVis}}" />
+                    </StackPanel>
                 </StackPanel>
             </DockPanel>
         </DataTemplate>

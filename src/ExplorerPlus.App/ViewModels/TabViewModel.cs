@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Windows.Media;
+using System.Windows.Threading;
 using ExplorerPlus.App.Infrastructure;
 using ExplorerPlus.App.Services;
 using ExplorerPlus.Core.Shell;
@@ -284,6 +285,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
 
         _watch?.Dispose();
         _watch = WatchFor(location);
+        WatchDrives();
 
         ApplyRememberedView();
         _ = LoadBreadcrumbAsync(location);
@@ -565,6 +567,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
             await ApplyViewAsync(keepSelection: false, select: select);
             if (clearFirst && select is not { Count: > 0 }) ScrollToTopRequested?.Invoke();
             RequestFolderSizes(_all);
+            if (IsThisPC) _ = UpdateDrivesAsync(withFacts: true);
         }
         catch (OperationCanceledException) { }
         catch (Exception ex) when (!cts.IsCancellationRequested)
@@ -737,8 +740,10 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         : _location?.IsDuplicates == true ? DuplicateFinder.Scheme
         : _location?.FileSystemPath ?? _location?.ParsingName;
 
-    private SortColumn DefaultSort => IsHome ? SortColumn.Default : SortColumn.Name;
-    private string? DefaultGroup => IsHome || _location?.IsDuplicates == true ? ColumnCatalog.Section : null;
+    private bool IsThisPC => Kind == LocationKind.ThisPC;
+    private SortColumn DefaultSort => IsHome || IsThisPC ? SortColumn.Default : SortColumn.Name;
+    private string? DefaultGroup => IsHome || IsThisPC || _location?.IsDuplicates == true ? ColumnCatalog.Section : null;
+    private ViewMode DefaultMode => IsThisPC ? ViewMode.Tiles : ViewMode.Details;
 
     private ItemViewModel NewItem(FolderEntry entry) => new(entry) { ImageSize = ViewModes.ImageSize(_viewMode) };
 
@@ -790,10 +795,10 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         _sortColumn = saved?.Sort ?? DefaultSort;
         _sortProperty = saved?.SortProperty;
         if (_sortColumn == SortColumn.Property && _sortProperty is null) _sortColumn = SortColumn.Name;
-        if (_sortColumn == SortColumn.Default && !IsHome) _sortColumn = SortColumn.Name;
+        if (_sortColumn == SortColumn.Default && !IsHome && !IsThisPC) _sortColumn = SortColumn.Name;
         _sortAscending = saved?.Ascending ?? true;
         _groupBy = saved is null ? DefaultGroup : saved.GroupBy;
-        if (_groupBy == ColumnCatalog.Section && !IsHome && _location?.IsDuplicates != true) _groupBy = null;
+        if (_groupBy == ColumnCatalog.Section && !IsHome && !IsThisPC && _location?.IsDuplicates != true) _groupBy = null;
         _columnWidths.Clear();
         List<string>? columns = null;
         if (saved?.Columns is { Count: > 0 } stored)
@@ -816,7 +821,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(SortAscending));
         OnPropertyChanged(nameof(SortKey));
         OnPropertyChanged(nameof(GroupBy));
-        ApplyViewMode(_modeIsRemembered ? saved!.Mode : ViewMode.Details);
+        ApplyViewMode(_modeIsRemembered ? saved!.Mode : DefaultMode);
     }
 
     private void SetColumnsQuietly(List<string> columns)
@@ -833,7 +838,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         _content = auto ? ContentViewRules.Classify(_all.Select(i => i.Entry), settings.ViewRules) : FolderContent.General;
         OnPropertyChanged(nameof(Content));
         if (!_columnsRemembered) SetColumnsQuietly(ColumnCatalog.DefaultFor(_content, Kind));
-        if (!_modeIsRemembered) ApplyViewMode(auto ? ContentViewRules.ModeFor(_content, settings.ViewRules) : ViewMode.Details);
+        if (!_modeIsRemembered) ApplyViewMode(auto ? ContentViewRules.ModeFor(_content, settings.ViewRules) : DefaultMode);
     }
 
     private void RememberView()
@@ -929,6 +934,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         if (dir is null || !_location!.IsFileSystemFolder)
         {
             if (c.Event is not (SHCNE.FREESPACE or SHCNE.UPDATEIMAGE)) ScheduleRefresh();
+            else if (IsThisPC) _ = UpdateDrivesAsync(withFacts: true);
             return;
         }
         if (IsLoading) { _dirtyDuringLoad = true; return; }
@@ -1230,6 +1236,12 @@ public sealed class TabViewModel : ObservableObject, IDisposable
                             + (_isLoading ? " · still looking" : "");
         }
         else if (_location?.IsDuplicates == true && !_isLoading) ItemCountText = "No duplicate files";
+        else if (IsThisPC && Items.Where(i => i.HasSpaceInfo).ToList() is { Count: > 0 } drives)
+        {
+            var total = drives.Sum(d => (decimal)d.DriveTotal);
+            var free = drives.Sum(d => (decimal)d.DriveFree);
+            ItemCountText += $" · {ItemViewModel.FormatSizeShort((long)free)} free of {ItemViewModel.FormatSizeShort((long)total)} on {drives.Count} drive{(drives.Count == 1 ? "" : "s")}";
+        }
         if (!_isLoading && _location?.IndexResults is { } found)
         {
             if (found.Truncated) ItemCountText += $" (the best of {found.Total:N0} matches)";
@@ -1250,6 +1262,44 @@ public sealed class TabViewModel : ObservableObject, IDisposable
 
     public ItemViewModel? FindByName(string name) => _byName.GetValueOrDefault(name);
 
+    // ---------- Drives on This PC ----------
+
+    private DispatcherTimer? _driveTimer;
+    private bool _drivesBusy;
+    private int _driveTicks;
+
+    // other programs change free space without telling the shell, so the page asks again every few seconds
+    private void WatchDrives()
+    {
+        if (!IsThisPC) { _driveTimer?.Stop(); return; }
+        if (_driveTimer is null)
+        {
+            _driveTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(4) };
+            _driveTimer.Tick += (_, _) => _ = UpdateDrivesAsync(withFacts: ++_driveTicks % 8 == 0);
+        }
+        _driveTimer.Start();
+    }
+
+    private async Task UpdateDrivesAsync(bool withFacts)
+    {
+        if (_drivesBusy || !IsThisPC) return;
+        var drives = _all.Where(i => i.IsDrive).ToList();
+        if (drives.Count == 0) return;
+        _drivesBusy = true;
+        try
+        {
+            var answers = await Task.WhenAll(drives.Select(d => DriveService.ReadAsync(d.Entry.Path!, withFacts)));
+            for (var n = 0; n < drives.Count; n++)
+            {
+                if (answers[n] is not { } a) continue;
+                drives[n].SetDriveSpace(a.Space);
+                if (a.Facts is { } facts) drives[n].SetDriveFacts(facts);
+            }
+            UpdateStatus();
+        }
+        finally { _drivesBusy = false; }
+    }
+
     public void Dispose()
     {
         _loadCts?.Cancel();
@@ -1261,6 +1311,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         Tags.Changed -= OnTagsChanged;
         CutItems.Changed -= OnCutChanged;
         _watch?.Dispose();
+        _driveTimer?.Stop();
         _partner?.Dispose();
     }
 }
