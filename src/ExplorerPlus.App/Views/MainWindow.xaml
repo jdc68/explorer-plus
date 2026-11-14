@@ -466,11 +466,11 @@
                 <ColumnDefinition Width="260" />
             </Grid.ColumnDefinitions>
             <StackPanel Orientation="Horizontal" Grid.Column="0" Margin="0,0,6,0">
-                <Button x:Name="BackButton" Style="{StaticResource IconButton}" Content="&#xE72B;" Click="OnBackClick" ToolTip="Back (Alt+Left)"
+                <Button x:Name="BackButton" Style="{StaticResource GroupedIconButton}" Tag="4,0,0,4" Content="&#xE72B;" Click="OnBackClick" ToolTip="Back (Alt+Left)"
                         IsEnabled="{Binding SelectedTab.CanGoBack}" MouseRightButtonUp="OnHistoryButtonRightClick" AutomationProperties.Name="Back" />
-                <Button x:Name="ForwardButton" Style="{StaticResource IconButton}" Content="&#xE72A;" Click="OnForwardClick" ToolTip="Forward (Alt+Right)"
+                <Button x:Name="ForwardButton" Style="{StaticResource GroupedIconButton}" Tag="0" Content="&#xE72A;" Click="OnForwardClick" ToolTip="Forward (Alt+Right)"
                         IsEnabled="{Binding SelectedTab.CanGoForward}" MouseRightButtonUp="OnHistoryButtonRightClick" AutomationProperties.Name="Forward" />
-                <Button Style="{StaticResource IconButton}" Content="&#xE74A;" Click="OnUpClick" ToolTip="Up (Alt+Up)"
+                <Button Style="{StaticResource GroupedIconButton}" Tag="0,4,4,0" Content="&#xE74A;" Click="OnUpClick" ToolTip="Up (Alt+Up)"
                         IsEnabled="{Binding SelectedTab.CanGoUp}" AutomationProperties.Name="Up" />
                 <Button Style="{StaticResource IconButton}" Content="&#xE72C;" Click="OnRefreshClick" ToolTip="Refresh (F5)" AutomationProperties.Name="Refresh" />
             </StackPanel>
