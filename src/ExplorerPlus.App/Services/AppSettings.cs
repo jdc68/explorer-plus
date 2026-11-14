@@ -77,6 +77,8 @@ public sealed class AppSettings
     /// <summary>Run copies and moves one after another (the transfer queue) instead of all at once.</summary>
     public bool QueueTransfers { get; set; } = true;
 
+    public bool SmoothScrolling { get; set; } = true;
+
     /// <summary>System, Light or Dark.</summary>
     public string Theme { get; set; } = "System";
 

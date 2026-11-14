@@ -72,6 +72,7 @@ public sealed class SettingsViewModel : ObservableObject
     public bool OpenFoldersInNewTab { get => S.OpenFoldersInNewTab; set => Change(() => S.OpenFoldersInNewTab = value); }
 
     public bool QueueTransfers { get => S.QueueTransfers; set => Change(() => S.QueueTransfers = value); }
+    public bool SmoothScrolling { get => S.SmoothScrolling; set => Change(() => S.SmoothScrolling = value); }
     public bool RestoreSession { get => S.RestoreSession; set => Change(() => S.RestoreSession = value); }
 
     public bool KeepRunningInBackground

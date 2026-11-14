@@ -63,7 +63,11 @@ public partial class MainWindow
         var pane = new FilePane(list, marquee, host, right) { DetailsView = (GridView)FindResource("DetailsGridView") };
         pane.SelectionRequested = items => SelectItems(pane, items, scroll: true);
         pane.ScrollToTopRequested = () => ScrollToTop(pane);
-        pane.ScrollToOffsetRequested = offset => Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => ScrollViewerOf(pane.List)?.ScrollToVerticalOffset(offset));
+        pane.ScrollToOffsetRequested = offset => Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
+        {
+            SmoothScroller.Stop(ScrollViewerOf(pane.List));
+            ScrollViewerOf(pane.List)?.ScrollToVerticalOffset(offset);
+        });
         pane.RenameRequested = item => BeginRename(pane, item);
         pane.TabChanged = (s, e) => OnPaneTabPropertyChanged(pane, s, e);
         list.View = pane.DetailsView;
@@ -88,6 +92,7 @@ public partial class MainWindow
             old.ReadScrollOffset = null;
             old.RenameRequested -= pane.RenameRequested;
             old.PropertyChanged -= pane.TabChanged;
+            SmoothScroller.Stop(ScrollViewerOf(pane.List));
             old.SavedScrollOffset = ScrollViewerOf(pane.List)?.VerticalOffset ?? 0;
             old.SavedSelection = pane.List.SelectedItems.Cast<ItemViewModel>().ToList();
         }
@@ -186,7 +191,11 @@ public partial class MainWindow
         }
     }
 
-    private void OnPanePreviewMouseDown(object sender, MouseButtonEventArgs e) => ViewModel.ActivatePane(ReferenceEquals(sender, RightPaneHost));
+    private void OnPanePreviewMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        SmoothScroller.Stop(ScrollViewerOf(ReferenceEquals(sender, RightPaneHost) ? RightList : LeftList));
+        ViewModel.ActivatePane(ReferenceEquals(sender, RightPaneHost));
+    }
 
     private void OnPaneGotFocus(object sender, KeyboardFocusChangedEventArgs e) => ViewModel.ActivatePane(ReferenceEquals(sender, RightPaneHost));
 

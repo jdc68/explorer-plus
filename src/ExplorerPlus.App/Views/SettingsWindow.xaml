@@ -81,6 +81,12 @@
                     <TextBlock Text="So the first folder after a restart opens instantly too. Listed in Windows Settings ▸ Apps ▸ Startup." Style="{StaticResource Hint}" />
                 </StackPanel>
             </Border>
+            <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <CheckBox Content="Smooth scrolling" IsChecked="{Binding SmoothScrolling}" Margin="0" />
+                    <TextBlock Text="The mouse wheel and Page Up / Page Down glide to where they go instead of jumping. Follows Windows' animation effects setting." Style="{StaticResource Hint}" />
+                </StackPanel>
+            </Border>
 
             <!-- ===== Files and folders ===== -->
             <TextBlock Text="Files and folders" Style="{StaticResource Section}" />

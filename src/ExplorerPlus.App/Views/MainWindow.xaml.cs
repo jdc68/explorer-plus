@@ -63,6 +63,17 @@ public partial class MainWindow : Window
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
         Address.EditFinished += FocusList;
         PreviewKeyDown += OnWindowKeyDown;
+        LeftList.AddHandler(KeyDownEvent, new KeyEventHandler(OnFileListKeyDownHandled), true);
+        RightList.AddHandler(KeyDownEvent, new KeyEventHandler(OnFileListKeyDownHandled), true);
+        var smooth = AppSettings.Current.SmoothScrolling;
+        Action onSettings = () =>
+        {
+            if (smooth == AppSettings.Current.SmoothScrolling) return;
+            smooth = AppSettings.Current.SmoothScrolling;
+            OnSmoothScrollingChanged();
+        };
+        AppSettings.Current.Changed += onSettings;
+        Closed += (_, _) => AppSettings.Current.Changed -= onSettings;
         PreviewMouseUp += OnWindowMouseUp;
         TaskbarItemInfo = new TaskbarItemInfo();
         StateChanged += (_, _) => ApplyTitleBarLayout();
@@ -325,10 +336,80 @@ public partial class MainWindow : Window
 
     private void OnFileListPreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
+        if (Keyboard.Modifiers == ModifierKeys.None && AppSettings.Current.SmoothScrolling)
+        {
+            e.Handled = SmoothWheel(PaneOf(sender), e.Delta);
+            return;
+        }
         if (Keyboard.Modifiers != ModifierKeys.Control) return;
         e.Handled = true;
         ViewModel.ActivatePane(PaneOf(sender).IsRight); // zoom the pane under the pointer
         Zoom(e.Delta > 0 ? 1 : -1);
+    }
+
+    private static bool Animate => AppSettings.Current.SmoothScrolling && SystemParameters.ClientAreaAnimation;
+
+    // Pixel units, so the offset can move in between rows; grouped lists need them anyway
+    private static void ApplyScrollUnit(FilePane pane)
+    {
+        var pixel = pane.Tab?.GroupBy is not null || AppSettings.Current.SmoothScrolling;
+        var unit = pixel ? ScrollUnit.Pixel : ScrollUnit.Item;
+        if (VirtualizingPanel.GetScrollUnit(pane.List) != unit) VirtualizingPanel.SetScrollUnit(pane.List, unit);
+    }
+
+    private bool SmoothWheel(FilePane pane, int delta)
+    {
+        if (ScrollViewerOf(pane.List) is not { } sv || delta == 0) return false;
+        var wrap = pane.Tab?.GroupBy is null ? FindDescendant<VirtualizingWrapPanel>(pane.List) : null;
+        var horizontal = wrap is { Orientation: Orientation.Vertical };
+        double step;
+        if (wrap is not null) step = horizontal ? wrap.ItemWidth : wrap.WheelStep;
+        else
+        {
+            var row = FindDescendant<ListViewItem>(pane.List)?.ActualHeight ?? 0;
+            if (row <= 0) row = 32;
+            var lines = SystemParameters.WheelScrollLines;
+            step = pane.Tab?.ViewMode != ViewMode.Details ? Math.Max(48, row)
+                : lines < 0 ? sv.ViewportHeight
+                : lines * row;
+        }
+        // a touchpad sends small deltas many times a second: follow the fingers as they move
+        var notched = delta % 120 == 0;
+        SmoothScroller.For(sv).ScrollBy(-delta / 120.0 * step, horizontal, notched && Animate);
+        return true;
+    }
+
+    private (ScrollViewer Sv, double X, double Y)? _pageScroll;
+
+    private void BeginPageScroll(FilePane pane)
+    {
+        _pageScroll = null;
+        if (!Animate || ScrollViewerOf(pane.List) is not { } sv) return;
+        var scroller = SmoothScroller.For(sv);
+        var (x, y) = scroller.Shown();
+        // the wrap panel keeps a screen of items on each side; the stack panel makes them later, so slide a picture of the old screen
+        if (pane.Tab?.GroupBy is not null || FindDescendant<VirtualizingWrapPanel>(pane.List) is null) scroller.TakeSnapshot();
+        _pageScroll = (sv, x, y);
+    }
+
+    // the list has already paged by the time this runs: slide its rows over the jump
+    private void OnFileListKeyDownHandled(object sender, KeyEventArgs e)
+    {
+        if (_pageScroll is not { } page || e.Key is not (Key.PageUp or Key.PageDown)) return;
+        _pageScroll = null;
+        ((ListView)sender).UpdateLayout();
+        var sv = page.Sv;
+        var horizontal = Math.Abs(sv.VerticalOffset - page.Y) < 0.5;
+        SmoothScroller.For(sv).GlideFrom(horizontal ? page.X : page.Y, horizontal);
+    }
+
+    private void OnSmoothScrollingChanged()
+    {
+        foreach (var pane in new[] { _left, _right })
+        {
+            SmoothScroller.Stop(ScrollViewerOf(pane.List));
+            ApplyScrollUnit(pane);
+        }
     }
 
     private void OnViewDetailsClick(object sender, RoutedEventArgs e) => Tab?.SetViewMode(ViewMode.Details);
@@ -641,6 +722,7 @@ public partial class MainWindow : Window
     private static void ResetScroll(ListView list)
     {
         if (ScrollViewerOf(list) is not { } sv) return;
+        SmoothScroller.Stop(sv);
         // Once the old items are cleared the viewer reports 0 and skips its own ScrollToVerticalOffset(0), while
         // the panel still holds the old offset and goes back to it (clamped) when the new items arrive
         if (FindDescendant<VirtualizingPanel>(sv) is IScrollInfo panel)
@@ -743,6 +825,9 @@ public partial class MainWindow : Window
     {
         if (e.OriginalSource is TextBox || Tab is not { } tab) return;
         var mods = Keyboard.Modifiers;
+        if (e.Key is Key.PageUp or Key.PageDown && (mods & ModifierKeys.Alt) == 0) BeginPageScroll(PaneOf(sender));
+        else if (e.Key is not (Key.LeftCtrl or Key.RightCtrl or Key.LeftShift or Key.RightShift or Key.LeftAlt or Key.RightAlt or Key.System))
+            SmoothScroller.Stop(ScrollViewerOf(PaneOf(sender).List));
         switch (e.Key)
         {
             case Key.Enter when mods == ModifierKeys.None || mods == ModifierKeys.Control:

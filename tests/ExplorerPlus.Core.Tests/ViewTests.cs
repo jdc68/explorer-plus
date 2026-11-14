@@ -155,6 +155,58 @@ public class ViewTests
         finally { window.Close(); }
     });
 
+    [Fact]
+    public void Smooth_scrolling_extends_moves_and_slides_back_to_rest() => RunSta(() =>
+    {
+        var list = new ListBox { ItemsSource = Enumerable.Range(0, 2000).Select(i => $"item {i}").ToList() };
+        VirtualizingPanel.SetIsVirtualizing(list, true);
+        VirtualizingPanel.SetScrollUnit(list, ScrollUnit.Pixel);
+        var window = new Window
+        {
+            Content = list, Width = 600, Height = 400, Left = -20000, Top = -20000,
+            ShowActivated = false, ShowInTaskbar = false, WindowStyle = WindowStyle.None,
+        };
+        window.Show();
+        try
+        {
+            Pump();
+            var sv = FindChild<ScrollViewer>(list)!;
+            var scroller = SmoothScroller.For(sv);
+
+            scroller.ScrollBy(-500, false, animate: false);
+            Pump();
+            Assert.Equal(0, sv.VerticalOffset);
+
+            // a second tick while the first one still moves goes on from where the first was going
+            scroller.ScrollBy(120, false, animate: true);
+            scroller.ScrollBy(120, false, animate: true);
+            PumpFor(TimeSpan.FromMilliseconds(500));
+            Assert.Equal(240, sv.VerticalOffset, 3);
+
+            // a page jump: the rows start a screen back and slide into place
+            var content = (UIElement)sv.Content;
+            var shownFrom = sv.VerticalOffset;
+            sv.ScrollToVerticalOffset(shownFrom + sv.ViewportHeight);
+            list.UpdateLayout();
+            scroller.TakeSnapshot();
+            scroller.GlideFrom(shownFrom, false);
+            Assert.Equal(sv.ViewportHeight, ((TranslateTransform)content.RenderTransform).Y, 3);
+            Assert.Equal(shownFrom, scroller.Shown().Y, 3);
+            PumpFor(TimeSpan.FromMilliseconds(500));
+            Assert.Equal(0, ((TranslateTransform)content.RenderTransform).Y);
+            Assert.Null(System.Windows.Documents.AdornerLayer.GetAdornerLayer(content)?.GetAdorners(content));
+        }
+        finally { window.Close(); }
+    });
+
+    private static void PumpFor(TimeSpan time)
+    {
+        var frame = new DispatcherFrame();
+        var timer = new DispatcherTimer(time, DispatcherPriority.Normal, (s, _) => { ((DispatcherTimer)s!).Stop(); frame.Continue = false; }, Dispatcher.CurrentDispatcher);
+        Dispatcher.PushFrame(frame);
+        Pump();
+    }
+
     private static void Pump()
     {
         for (var n = 0; n < 5; n++)

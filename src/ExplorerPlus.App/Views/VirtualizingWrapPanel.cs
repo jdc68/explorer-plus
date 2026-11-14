@@ -234,7 +234,7 @@ public sealed class VirtualizingWrapPanel : VirtualizingPanel, IScrollInfo
     public double VerticalOffset => _offset.Y;
     public ScrollViewer? ScrollOwner { get; set; }
 
-    private double WheelStep => Horizontal ? Math.Max(48, ItemHeight) : ItemWidth;
+    public double WheelStep => Horizontal ? Math.Max(48, ItemHeight) : ItemWidth;
 
     public void LineUp() => SetVerticalOffset(_offset.Y - 24);
     public void LineDown() => SetVerticalOffset(_offset.Y + 24);

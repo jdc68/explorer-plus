@@ -175,7 +175,7 @@ public partial class MainWindow
         var groups = list.Items.GroupDescriptions;
         groups.Clear();
         list.GroupStyle.Clear();
-        VirtualizingPanel.SetScrollUnit(list, grouped ? ScrollUnit.Pixel : ScrollUnit.Item);
+        ApplyScrollUnit(pane);
         if (!grouped) return;
 
         // When grouping, GroupStyle.Panel stacks the groups and ItemsPanel lays out the items inside each group.
