@@ -164,6 +164,9 @@ public static class User32
     public static extern bool IsWindow(IntPtr hWnd);
 
     [DllImport("user32.dll")]
+    public static extern int GetWindowThreadProcessId(IntPtr hWnd, IntPtr lpdwProcessId);
+
+    [DllImport("user32.dll")]
     public static extern IntPtr CreatePopupMenu();
 
     [DllImport("user32.dll")]

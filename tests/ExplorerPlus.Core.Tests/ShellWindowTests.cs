@@ -48,6 +48,20 @@ public class ShellWindowTests
                         selected = null;
                     }
 
+                    // a new tab on another folder: the shell only looks again after a new registration
+                    var other = Directory.CreateTempSubdirectory("ep-shellwindow-other-").FullName;
+                    try
+                    {
+                        registration.Navigated(ShellLocation.FromParsingNameAsync(other).Result!);
+                        ShellWindowRegistration.Flush(TimeSpan.FromSeconds(10));
+                        Assert.Null(Find(location.Pidl, out _));
+                        registration.Navigated(location);
+                        ShellWindowRegistration.Flush(TimeSpan.FromSeconds(10));
+                        Assert.NotNull(Find(location.Pidl, out _));
+                        Assert.Null(Find(Pidl.TakeNative(Shell32.ILCreateFromPathW(other)), out _));
+                    }
+                    finally { Directory.Delete(other, true); }
+
                     registration.Dispose();
                     ShellWindowRegistration.Flush(TimeSpan.FromSeconds(10));
                     Assert.Null(Find(location.Pidl, out _));

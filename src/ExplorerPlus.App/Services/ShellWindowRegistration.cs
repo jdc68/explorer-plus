@@ -15,6 +15,7 @@ public sealed class ShellWindowRegistration : IDisposable
     private readonly IntPtr _hwnd;
     private IShellWindows? _registeredWith;
     private readonly List<int> _cookies = [];
+    private List<byte[]> _forms = [];
     private bool _disposed;
 
     public ShellWindowRegistration(IntPtr hwnd, Action<Pidl, uint> select, Action<Pidl?, uint> browse, Action close)
@@ -37,7 +38,7 @@ public sealed class ShellWindowRegistration : IDisposable
     });
 
     // after explorer.exe restarts
-    public void Resync() => Enqueue(Sync);
+    public void Resync() => Enqueue(() => Sync(force: true));
 
     public void Dispose()
     {
@@ -66,7 +67,12 @@ public sealed class ShellWindowRegistration : IDisposable
             }, TaskScheduler.Default);
     }
 
-    private void Sync()
+    private void Sync() => Sync(force: false);
+
+    // "Show in folder" runs the folder verb when no window shows the folder, then waits for a new registration
+    // and searches again; a move reported through OnNavigate doesn't wake it up. So each folder gets fresh entries,
+    // pending with the folder first so it's already set when the shell looks.
+    private void Sync(bool force)
     {
         if (_disposed) return;
         if (_site.Location is not { } location)
@@ -83,22 +89,32 @@ public sealed class ShellWindowRegistration : IDisposable
                 if (!ReferenceEquals(_registeredWith, sw))
                 {
                     _cookies.Clear();
+                    _forms = [];
                     _registeredWith = sw;
                 }
-                while (_cookies.Count < forms.Count)
+                if (!force && SameForms(forms, _forms)) return;
+
+                // RegisterPending is matched to Register by the window's thread
+                var thread = User32.GetWindowThreadProcessId(_hwnd, IntPtr.Zero);
+                var cookies = new List<int>();
+                foreach (var form in forms)
                 {
-                    _cookies.Add(sw.Register(_site, (int)_hwnd, ShellWindowClass.SWC_BROWSER));
+                    object loc = form;
+                    object root = null!;
+                    var pending = sw.RegisterPending(thread, ref loc, ref root, ShellWindowClass.SWC_BROWSER);
+                    var cookie = sw.Register(_site, (int)_hwnd, ShellWindowClass.SWC_BROWSER);
+                    if (pending != cookie) sw.Revoke(pending);
+                    sw.OnNavigate(cookie, ref loc);
+                    cookies.Add(cookie);
                 }
-                while (_cookies.Count > forms.Count)
+                foreach (var old in _cookies)
                 {
-                    sw.Revoke(_cookies[^1]);
-                    _cookies.RemoveAt(_cookies.Count - 1);
+                    try { sw.Revoke(old); }
+                    catch { }
                 }
-                for (var i = 0; i < forms.Count; i++)
-                {
-                    object loc = forms[i];
-                    sw.OnNavigate(_cookies[i], ref loc);
-                }
+                _cookies.Clear();
+                _cookies.AddRange(cookies);
+                _forms = forms;
                 return;
             }
             catch when (attempt == 0)
@@ -106,9 +122,13 @@ public sealed class ShellWindowRegistration : IDisposable
                 _shellWindows = null;
                 _registeredWith = null;
                 _cookies.Clear();
+                _forms = [];
             }
         }
     }
+
+    private static bool SameForms(List<byte[]> a, List<byte[]> b) =>
+        a.Count == b.Count && a.Zip(b).All(p => p.First.AsSpan().SequenceEqual(p.Second));
 
     // The shell only matches PIDLs with the same root. On a drive also listed as removable, a parsed folder path
     // is rooted there, while files and File Explorer's windows go through This PC
@@ -156,5 +176,6 @@ public sealed class ShellWindowRegistration : IDisposable
             }
         }
         _cookies.Clear();
+        _forms = [];
     }
 }
