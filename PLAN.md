@@ -376,6 +376,44 @@ Verified on a dev build in an isolated profile on this machine: the four folders
   - A hotkey in the dialog that jumps it to the folder in the active Explorer+ window.
   - "Show in folder" after a download is a different path (`SHOpenFolderAndSelectItems`, or the browser starting `explorer.exe`), handled in I6.
 
+**Next: ideas from the 14 Nov 2026 brainstorm (I15 to I21, in this order, chosen with the user).** Not GitHub issues. The order puts what protects the product first, then what hurts every day, then the features that reuse the index service, then the ones with their own UI. Each step is only a sketch; the "Decide with the user" lines are settled before building.
+
+**I15: close the performance budget.**
+- Section 8 still has five rows that say "not measured yet" (100,000-file folder fully listed, own right-click menu, type-to-filter on 10,000 items, idle memory with 3 tabs), and the cold start row is old. Speed is the product's main promise, and I16 to I21 add features that can slow it down, so measure before building them.
+- A script (`tests/perf/` or `installer/perf.ps1`, outside the normal test run) that builds a scratch folder of 100,000 files, starts a dev build in its own profile (`EXPLORERPLUS_PROFILE`), and records: time to first rows and to the full listing, the item menu's time to show, a type-to-filter keystroke's time, working set with 1 and 3 tabs after 30 s idle, cold start and background-mode start. It writes one table to `artifacts/perf/`, and the numbers go into section 8 with the date and the machine.
+- Any row over its target becomes a fix inside this step if it is small, or a new step if not (List view's 50 ms frames from I10 are already known). Decide with the user: whether `build.ps1 -Release` should run the script and warn when a row is more than 20% worse than the last one.
+
+**I16: "what is using this file?"**
+- When delete, move, rename or replace fails because another process holds the file (`ERROR_SHARING_VIOLATION`, `ERROR_LOCK_VIOLATION`), say which process. The Restart Manager API (`RmStartSession`, `RmRegisterResources`, `RmGetList`) lists the applications that hold a file or the files under a folder, with no elevation for the user's own processes. Also an item-menu entry "What is using this?" for a selection, and a result list with the process name, id and a "Close" button that asks the app to quit (`RmShutdown`; never a kill without a second confirmation).
+- The shell's own dialog already says "in use" for `IFileOperation`; the new part is the name and the way out. Catch it where `FileOpLog` sees a failed result, so it works for copies and moves from the queue as well, and show it as a notice with "Show who" and "Try again".
+- Decide with the user: whether to offer a force-close of other users' or elevated processes (probably not), and whether to also offer "Delete on next restart" (`MoveFileEx` with `MOVEFILE_DELAY_UNTIL_REBOOT`, which needs admin rights).
+
+**I17: recent changes view (needs the index service).**
+- Everything modified or created in the last N minutes, hours or days, across all drives or below a folder, newest first, as a results tab (like instant search: location, size and date from the index, no disk access). It is the answer to "where did that download go" and "what did that installer touch".
+- The index keeps size and modified time for each record, and the USN journal reports every change, so a request that returns the newest hits is enough: a new request type in `IndexProtocol` (`RecentRequest(Scope, Since, Limit, IncludeHidden, IncludeProtected)`, protocol v3) that scans the modified-time array, with the same access checks as a search. The service, the Update button and the version check in Settings handle the new protocol like they did for v2.
+- In the app: a location `explorerplus-recent:` (the same kind of app-made location as `explorerplus-search:`), a Home row and a sidebar entry "Recent changes", the palette command "Recent changes…", and a bar with 15 minutes, 1 hour, today, 7 days. Windows' own noise (System32, `$Recycle.Bin`, `AppData\Local\Temp`, the browser caches) is hidden by default, with a switch to show everything.
+- Decide with the user: whether created counts as well as modified (the index has only the modified time today; the created time needs another pass over the MFT), the noise filter's default list, and whether the 1,000-result cap is enough here.
+
+**I18: big, old and empty finders (needs the index service).**
+- A "Clean up" command (More, the palette, This PC's drive tiles) with three lists over a drive or folder, each opening as a results tab: the largest files (top 1,000 by size), files not modified in N years (and bigger than M MB), and empty folders. All three are queries over the index (size and modified time are there; a folder is empty when it has no children, which needs a child count in the index, a small addition to `VolumeIndex`).
+- Reuses the results tab, the sort and group by size or date, and the "N items · X" status bar from the duplicate finder. Deleting from the list goes to the Recycle Bin and removes the rows, as in the duplicate finder; there is no one-click "delete all" at first.
+- Decide with the user: whether the folders list counts a folder with only empty folders below it as empty (probably yes), and whether system, hidden and protected locations are skipped (yes, unless the user asks).
+
+**I19: flat view.**
+- A "Flat view" toggle (View menu, palette, status bar chip) that shows every file below the current folder as one list, with a Location column, as in Directory Opus. A type filter next to it ("only PDFs", "only pictures") makes it the quickest way to see everything of one kind in a project.
+- With the index service running it is a scoped index query (as with a folder search with an empty query), so a big tree lists at once; without it, a streamed walk through `FastFolderEnumerator`, cancelled on navigation like any listing. It is an app-made location like the search tabs, so deletes and renames work on its items and nothing is watched.
+- Decide with the user: the item cap (1,000 like search, or more for this view), whether folders are listed too or only files, and whether it remembers per folder that it is on.
+
+**I20: disk usage view (treemap).**
+- "Analyze this drive" (a drive tile's menu on This PC, any folder's menu, the palette): a treemap of the folder, each rectangle sized by its total, drawn from the index's folder totals (instant) and from the walk where the index can't answer (network, FAT, removable). Click a rectangle to go into it, a breadcrumb to go back up, a list beside it ordered by size, and the right-click menu of the item under the mouse (open, show in folder, delete to the Recycle Bin).
+- Colour by file kind (pictures, videos, music, documents, code, archives, other) with a legend that also filters. The treemap itself is a custom WPF control that draws the squarified layout in a `DrawingVisual` and hit-tests by rectangle, so thousands of cells stay smooth; it limits itself to the largest N children per level and groups the rest as "other".
+- Needs a request for the children of a folder with their totals (`FolderSizesRequest` answers by path today, so the app can list a folder and ask for its subfolders in one go; files come from the listing). Decide with the user: a tab or a separate window, and whether a sunburst is wanted as a second chart.
+
+**I21: drop shelf.**
+- A small floating tray, always on top, that holds files while you browse. Drag files onto it (from any Explorer+ window or other apps), go to another folder or app, and drag them out again, or use "Move here" and "Copy here" in the shelf's menu to put the whole set in the current folder. It saves the dual pane dance for one-off moves between far-apart folders.
+- The shelf keeps paths only (never copies), shows names and icons with a count, and survives a restart of Explorer+ (the paths in settings, items that no longer exist drop out). Items drag out as a normal file drag (`SHCreateDataObject` with the PIDLs), with the shell's drop effects. A shortcut and the palette ("Add to shelf", "Show shelf") add the selection without dragging.
+- Decide with the user: whether the shelf appears by itself when a drag starts in Explorer+ (as on macOS) or only from a button, where it docks, and whether moved items are removed from the shelf at once.
+
 **M7: remote locations and plugins (postponed; future plan, not scheduled).** Comes after the issue steps above.
 - SFTP, WebDAV and S3 as locations in the sidebar and address bar, listed and browsed like folders, with copy, move and delete going through the same queue.
 - A plugin API: columns, preview handlers, item menu commands and locations from separate assemblies.
