@@ -56,6 +56,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
     {
         FolderSizeWatcher.Changed += OnFolderSizesInvalidated;
         Stars.Changed += OnStarsChanged;
+        FrequentFolders.Changed += OnFrequentChanged;
         Tags.Changed += OnTagsChanged;
         CutItems.Changed += OnCutChanged;
     }
@@ -1081,6 +1082,11 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         if (IsHome) ScheduleRefresh();
     }
 
+    private void OnFrequentChanged()
+    {
+        if (IsHome) ScheduleRefresh();
+    }
+
     private void ScheduleRefresh(int delayMs = 300)
     {
         _refreshDebounce?.Cancel();
@@ -1308,6 +1314,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         _requeryCts?.Cancel();
         FolderSizeWatcher.Changed -= OnFolderSizesInvalidated;
         Stars.Changed -= OnStarsChanged;
+        FrequentFolders.Changed -= OnFrequentChanged;
         Tags.Changed -= OnTagsChanged;
         CutItems.Changed -= OnCutChanged;
         _watch?.Dispose();

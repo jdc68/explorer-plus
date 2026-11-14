@@ -154,6 +154,14 @@
                     <CheckBox Content="Gallery" IsChecked="{Binding ShowGallery}" />
                     <CheckBox Content="Libraries" IsChecked="{Binding ShowLibraries}" />
                     <CheckBox Content="Recent files on Home" IsChecked="{Binding ShowRecentFiles}" />
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Content="Clear history" Click="OnClearFrequentClick" VerticalAlignment="Center"
+                                AutomationProperties.Name="Clear frequent folders" />
+                        <CheckBox Content="Show frequent folders" IsChecked="{Binding ShowFrequentFolders}" />
+                    </DockPanel>
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="The 5 folders you open most often in Explorer+, under the pins in Quick access and on Home. Right-click one to pin it or remove it." />
+                    <TextBlock Text="{Binding FrequentMessage}" Style="{StaticResource Hint}" />
                 </StackPanel>
             </Border>
 

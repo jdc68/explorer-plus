@@ -49,6 +49,7 @@ public partial class SettingsWindow : Window
     private async void OnRemoveIndexClick(object sender, RoutedEventArgs e) => await Vm.RemoveIndexAsync();
     private void OnRestoreExplorerClick(object sender, RoutedEventArgs e) => Vm.RestoreExplorer();
     private void OnClearRecentClick(object sender, RoutedEventArgs e) => Vm.ClearRecentFolders();
+    private void OnClearFrequentClick(object sender, RoutedEventArgs e) => Vm.ClearFrequentFolders();
     private void OnOpenDataFolderClick(object sender, RoutedEventArgs e) => Vm.OpenDataFolder();
     private void OnOpenErrorLogClick(object sender, RoutedEventArgs e) => Vm.OpenErrorLog();
 }

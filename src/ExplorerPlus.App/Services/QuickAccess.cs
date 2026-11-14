@@ -4,9 +4,12 @@ using ExplorerPlus.Core.Shell;
 
 namespace ExplorerPlus.App.Services;
 
-/// <summary>What Quick access shows, in the sidebar and on Home: the standard user folders, then the user's pins.</summary>
+/// <summary>What Quick access shows, in the sidebar and on Home: the standard user folders, then the user's pins (frequent folders follow them, see <see cref="FrequentFolders"/>).</summary>
 public static class QuickAccess
 {
+    public const string PinGlyph = "";
+    public const string FrequentGlyph = "";
+
     private static readonly Guid DownloadsId = new("374DE290-123F-4565-9164-39C4925E467B");
 
     public static IReadOnlyList<(string Name, string Path, bool IsPinned)> Entries()
@@ -29,6 +32,17 @@ public static class QuickAccess
     }
 
     public static bool IsShown(string path) => Entries().Any(e => SamePath(e.Path, path));
+
+    /// <summary>The pins and the standard folders that show, without checking the disk.</summary>
+    public static List<string> FixedPaths()
+    {
+        var settings = AppSettings.Current;
+        return StandardFolders()
+            .Where(f => !string.IsNullOrEmpty(f.Path) && !settings.HiddenQuickAccess.Any(h => SamePath(h, f.Path!)))
+            .Select(f => f.Path!)
+            .Concat(settings.PinnedFolders)
+            .ToList();
+    }
 
     // Explorer+'s own pins, separate from File Explorer's Quick access
     public static void Pin(string path)
@@ -62,9 +76,10 @@ public static class QuickAccess
     private static bool SamePath(string a, string b) =>
         string.Equals(a.TrimEnd('\\'), b.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>For Home: the same folders, plus pins that are offline right now (Home skips what doesn't answer).</summary>
+    /// <summary>For Home: the same folders, plus pins that are offline right now (Home skips what doesn't answer), then the frequent ones.</summary>
     public static IReadOnlyList<string> Paths() =>
-        Entries().Select(e => e.Path).Concat(AppSettings.Current.PinnedFolders).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        Entries().Select(e => e.Path).Concat(AppSettings.Current.PinnedFolders).Concat(FrequentFolders.Shown)
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
     public static HomeFeedOptions HomeOptions() =>
         new(Paths(), Stars.All.ToList(), AppSettings.Current.ShowRecentFiles);

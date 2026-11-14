@@ -55,6 +55,18 @@ public sealed class ItemViewModel : ObservableObject
 
     public void RefreshStar() => OnPropertyChanged(nameof(IsStarred));
 
+    /// <summary>Pin or clock on Home's Quick access rows: pinned or frequent.</summary>
+    public string? QuickAccessMark => _entry.Section == HomeFeed.QuickAccessSection && _entry.Path is { } p
+        ? FrequentFolders.IsShown(p) && !QuickAccess.FixedPaths().Any(q => FolderHistory.Same(q, p)) ? QuickAccess.FrequentGlyph : QuickAccess.PinGlyph
+        : null;
+
+    public string? QuickAccessMarkToolTip => QuickAccessMark switch
+    {
+        QuickAccess.PinGlyph => "Pinned",
+        QuickAccess.FrequentGlyph => "Frequent",
+        _ => null,
+    };
+
     public string SizeText => _entry.IsFolder
         ? _folderSize is { } s ? FormatSize(s) : _sizePending ? "…" : ""
         : _entry.Size < 0 ? "" : FormatSize(_entry.Size);

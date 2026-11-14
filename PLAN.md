@@ -107,7 +107,7 @@ Speed comes from a hybrid:
 | Network | keep | M1 ✔ |
 | Linux (WSL) | keep, shown only if WSL is installed | M1 ✔ |
 | Home: Recommended, Shared | cut | M3  ✔ |
-| Home: auto-added frequent folders | cut (manual pins kept); back as a setting in I12 (#15) | M3  ✔ |
+| Home: auto-added frequent folders | back as a setting in I12 (#15), on by default, from Explorer+'s own history | I12 ✔ |
 | Home: Recent files | keep | M3  ✔ |
 | Menu: Copilot / M365 AI entries | hidden | M2 ✔ |
 | Menu: Clipchamp / Photos / Paint / Designer edit entries | hidden | M2 ✔ |
@@ -353,6 +353,15 @@ Verified on a dev build in an isolated profile on this machine: C: (91% full) re
 
 **I12: frequent folders in the sidebar.**
 - [#15](https://github.com/jdc68/explorer-plus/issues/15) Show frequently opened folders under Quick access, as File Explorer does. Not built yet: section 5 cut "auto-added frequent folders" (M3), and this issue brings them back, so they become a setting (Settings ▸ Navigation pane and Home ▸ "Show frequent folders"). Explorer+ keeps its own history, separate from File Explorer's, as with the pins (#6): a visit count and last visit per folder, ranked by how often and how recently (today's `RecentFolders` keeps only the last 10, for the jump list). Show the top few below the pins, with "Pin to Quick access" and "Remove from frequent" on right-click, and the same list in Home's Quick access section. Leave out the Recycle Bin, temp folders, search and tag views, and drives that are offline. Decide with the user: on or off by default, how many to show, and whether to start from File Explorer's own frequent list (readable through the Quick access shell folder) or empty.
+
+I12 done (14 Nov 2026), decided with the user: on by default, 5 folders, seeded once from File Explorer's frequent list:
+- `FolderHistory` (Core) keeps a visit count and last visit per folder (`AppSettings.FolderHistory`, at most 200, the weakest dropped) and ranks by count times an age weight (4 under 4 hours, 2 under a day, 1 under a week, 0.5 under a month, 0.25 after). Every tab navigation to a file-system folder counts; searches, tag and duplicate views, the Recycle Bin, temp folders and drive roots never do.
+- First start: File Explorer's frequent folders (the Frequent Places shell folder, `shell:::{3936E9E4-D92C-4EEE-A85A-BC16D5EA0819}`, its items with `System.Home.IsPinned` false) go into the history once, in Explorer's order and with small counts so new visits overtake them (`FolderHistorySeeded`).
+- `Services/FrequentFolders` picks the top 5 that aren't pins or standard folders and answer within 1.5 s (offline drives and shares drop out), off the UI thread, 2 s after a burst of navigations, and saves the history then. The sidebar shows them below the pins (only those rows are rebuilt), Home's Quick access section lists them after the pins.
+- Markers: pinned folders (the standard ones too, since they can be unpinned) get a pin after the name and frequent ones a clock, in the sidebar and on Home's Quick access rows (`QuickAccess.PinGlyph` / `FrequentGlyph`), with "Pinned" / "Frequent" tooltips.
+- Right-click: "Pin to Quick access" as before, and "Remove from frequent" in the sidebar and on Home (it forgets the folder's history; it comes back if opened often again). Settings ▸ Navigation pane and Home ▸ "Show frequent folders", with "Clear history".
+
+Verified on a dev build in an isolated profile on this machine: the four folders File Explorer had as frequent came over, a folder opened in Explorer+ joined them in the sidebar (highlighted) and on Home. Tests: `FolderHistoryTests` (ranking, exclusions, the cap, seeding, reading Explorer's list). Not tried by hand: the right-click entries, the Settings checkbox, a frequent folder on a share that goes offline.
 
 **I13: hover preview built in.**
 - [#25](https://github.com/jdc68/explorer-plus/issues/25) HoverPreview (`E:\Programming\Previewer`, a separate C++ exe) becomes a feature of Explorer+, with nothing extra to install, and a setting to turn it off (Settings ▸ Preview ▸ "Preview on hover"). Inside Explorer+ it needs none of HoverPreview's machinery: the list knows the item under the mouse, so no UI Automation polling and no `IShellWindows` lookup.

@@ -68,6 +68,14 @@ public sealed class AppSettings
     /// <summary>Folders opened lately, newest first, for the taskbar jump list.</summary>
     public List<string> RecentFolders { get; set; } = [];
 
+    /// <summary>Frequently opened folders under the pins in Quick access, and on Home.</summary>
+    public bool ShowFrequentFolders { get; set; } = true;
+
+    public List<FolderVisit> FolderHistory { get; set; } = [];
+
+    // File Explorer's frequent folders were taken over once
+    public bool FolderHistorySeeded { get; set; }
+
     /// <summary>Pick a view from what a folder holds (pictures as large icons…) unless one was set by hand.</summary>
     public bool ContentAwareViews { get; set; } = true;
 

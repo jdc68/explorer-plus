@@ -4,7 +4,7 @@ using ComTypes = System.Runtime.InteropServices.ComTypes;
 
 namespace ExplorerPlus.Core.Shell;
 
-/// <param name="QuickAccess">Folders pinned by the user (plus the standard user folders), in display order.</param>
+/// <param name="QuickAccess">The standard user folders, the user's pins and the frequent folders, in display order.</param>
 /// <param name="Starred">Starred files and folders, in the order they were starred.</param>
 /// <param name="IncludeRecent">Whether to list recently opened files.</param>
 /// <param name="RecentFolder">Where Windows keeps its recent-item shortcuts (defaults to the user's Recent folder).</param>
@@ -17,7 +17,7 @@ public sealed record HomeFeedOptions(
 
 /// <summary>
 /// Content of Explorer+'s Home page: Quick access, Starred and Recent files. Unlike Explorer's Home there are no
-/// "Recommended" or "Shared" cloud feeds and no automatically added frequent folders. Everything listed is a
+/// "Recommended" or "Shared" cloud feeds; frequent folders come from Explorer+'s own history. Everything listed is a
 /// real file-system item, so every action (open, menus, drag, rename, delete) works as in a folder.
 /// </summary>
 public static class HomeFeed

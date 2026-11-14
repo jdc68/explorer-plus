@@ -63,8 +63,9 @@ public class SidebarFolder : SidebarItem
     private bool _loaded;
 
     public SidebarFolder(string name, string target, string? fileSystemPath, bool expandable, bool isPinned = false, bool isStarred = false,
-        string? glyph = null)
+        string? glyph = null, bool isFrequent = false)
     {
+        IsFrequent = isFrequent;
         Name = name;
         Target = target;
         FileSystemPath = fileSystemPath;
@@ -82,6 +83,12 @@ public class SidebarFolder : SidebarItem
     public string Target { get; }
     public string? FileSystemPath { get; }
     public bool IsPinned { get; }
+
+    /// <summary>A frequent folder under the pins in Quick access.</summary>
+    public bool IsFrequent { get; }
+
+    public string? Mark => IsPinned ? QuickAccess.PinGlyph : IsFrequent ? QuickAccess.FrequentGlyph : null;
+    public string? MarkToolTip => IsPinned ? "Pinned" : IsFrequent ? "Frequent" : null;
 
     /// <summary>An entry of the Starred section (may be a file).</summary>
     public bool IsStarredEntry { get; }
@@ -157,6 +164,7 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
     private readonly SidebarHeader _locations = new("Locations");
     private readonly IDisposable _driveWatch;
     private CancellationTokenSource? _driveDebounce;
+    private ShellLocation? _synced;
 
     public ObservableCollection<SidebarItem> Roots { get; } = [];
 
@@ -172,6 +180,7 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         _ = RefreshDrivesAsync();
         Stars.Changed += BuildStarred;
         Tags.Changed += BuildTags;
+        FrequentFolders.Changed += BuildFrequent;
 
         _driveWatch = ShellChangeWatcher.Instance.Watch(Pidl.Desktop, true,
             SHCNE.DRIVEADD | SHCNE.DRIVEREMOVED | SHCNE.MEDIAINSERTED | SHCNE.MEDIAREMOVED | SHCNE.FREESPACE | SHCNE.NETSHARE,
@@ -189,8 +198,24 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
     {
         _quick.Children.Clear();
         _quick.Children.Add(new SidebarFolder("Home", ShellLocation.Known.Home, null, expandable: false));
-        foreach (var (name, path, pinned) in QuickAccess.Entries())
-            _quick.Children.Add(new SidebarFolder(name, path, path, expandable: true, isPinned: pinned));
+        // the standard folders count as pins: they can be unpinned too
+        foreach (var (name, path, _) in QuickAccess.Entries())
+            _quick.Children.Add(new SidebarFolder(name, path, path, expandable: true, isPinned: true));
+        BuildFrequent();
+    }
+
+    private void BuildFrequent()
+    {
+        foreach (var old in _quick.Children.OfType<SidebarFolder>().Where(f => f.IsFrequent).ToList())
+            _quick.Children.Remove(old);
+        var shown = _quick.Children.OfType<SidebarFolder>().Select(f => f.FileSystemPath).OfType<string>().ToList();
+        foreach (var path in FrequentFolders.Shown)
+        {
+            if (shown.Any(p => FolderHistory.Same(p, path))) continue;
+            var name = Path.GetFileName(path.TrimEnd('\\'));
+            _quick.Children.Add(new SidebarFolder(string.IsNullOrEmpty(name) ? path : name, path, path, expandable: true, isFrequent: true));
+        }
+        SyncSelection(_synced);
     }
 
     /// <summary>The Starred section, shown only while something is starred.</summary>
@@ -274,6 +299,7 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
     /// <summary>Highlights the entry matching the current location, if it is a top-level entry.</summary>
     public void SyncSelection(ShellLocation? location)
     {
+        _synced = location;
         foreach (var header in Roots)
             foreach (var item in header.Children.OfType<SidebarFolder>())
             {
@@ -290,5 +316,6 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         AppSettings.Current.Changed -= OnSettingsChanged;
         Stars.Changed -= BuildStarred;
         Tags.Changed -= BuildTags;
+        FrequentFolders.Changed -= BuildFrequent;
     }
 }

@@ -132,6 +132,22 @@
             <Setter Property="Visibility" Value="{Binding IsStarred, Converter={StaticResource BoolToVis}}" />
         </Style>
 
+        <!-- Pin or clock on Home's Quick access rows -->
+        <Style x:Key="QuickAccessMark" TargetType="TextBlock">
+            <Setter Property="Text" Value="{Binding QuickAccessMark}" />
+            <Setter Property="ToolTip" Value="{Binding QuickAccessMarkToolTip}" />
+            <Setter Property="FontFamily" Value="{StaticResource IconFont}" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Margin" Value="6,0,4,0" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding QuickAccessMark}" Value="{x:Null}">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
         <!-- ===== Layouts for the non-details views (item size per mode) ===== -->
         <ItemsPanelTemplate x:Key="DetailsPanel">
             <VirtualizingStackPanel />
@@ -190,6 +206,7 @@
                 <CheckBox DockPanel.Dock="Left" Style="{StaticResource ItemCheckBox}" Margin="0,0,6,0" />
                 <Image DockPanel.Dock="Left" Source="{Binding Icon}" Width="16" Height="16" Margin="0,0,8,0" />
                 <TextBlock DockPanel.Dock="Right" Style="{StaticResource StarMark}" />
+                <TextBlock DockPanel.Dock="Right" Style="{StaticResource QuickAccessMark}" />
                 <Grid>
                     <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
                                Visibility="{Binding IsRenaming, Converter={StaticResource InverseBoolToVis}}" />
@@ -301,6 +318,7 @@
                             <CheckBox DockPanel.Dock="Left" Style="{StaticResource ItemCheckBox}" Margin="0,0,8,0" />
                             <Image DockPanel.Dock="Left" Source="{Binding Icon}" Width="16" Height="16" Margin="0,0,8,0" />
                             <TextBlock DockPanel.Dock="Right" Style="{StaticResource StarMark}" />
+                            <TextBlock DockPanel.Dock="Right" Style="{StaticResource QuickAccessMark}" />
                             <Grid>
                                 <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
                                            Visibility="{Binding IsRenaming, Converter={StaticResource InverseBoolToVis}}" />
@@ -594,14 +612,17 @@
                         </StackPanel>
                     </HierarchicalDataTemplate>
                     <HierarchicalDataTemplate DataType="{x:Type vm:SidebarFolder}" ItemsSource="{Binding Children}">
-                        <StackPanel Orientation="Horizontal" Margin="0,1">
-                            <Grid Width="16" Height="16" Margin="0,0,8,0">
+                        <DockPanel Margin="0,1">
+                            <Grid DockPanel.Dock="Left" Width="16" Height="16" Margin="0,0,8,0">
                                 <Image Source="{Binding Icon}" />
                                 <TextBlock Text="{Binding Glyph}" FontFamily="{DynamicResource IconFont}" FontSize="14"
                                            HorizontalAlignment="Center" VerticalAlignment="Center" />
                             </Grid>
+                            <TextBlock DockPanel.Dock="Right" Text="{Binding Mark}" ToolTip="{Binding MarkToolTip}" FontFamily="{DynamicResource IconFont}"
+                                       FontSize="11" Margin="8,0,6,0" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
                             <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                        </StackPanel>
+                        </DockPanel>
                     </HierarchicalDataTemplate>
                     <DataTemplate DataType="{x:Type vm:SidebarPlaceholder}">
                         <TextBlock Text="{Binding Name}" Foreground="{DynamicResource TextFillColorSecondaryBrush}" />

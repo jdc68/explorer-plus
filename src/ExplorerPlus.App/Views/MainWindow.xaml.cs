@@ -1000,6 +1000,7 @@ public partial class MainWindow : Window
     private const int CmdMoveToOther = ShellContextMenu.FirstCustomId + 13;
     private const int CmdOpenInOther = ShellContextMenu.FirstCustomId + 14;
     private const int CmdNewTag = ShellContextMenu.FirstCustomId + 15;
+    private const int CmdRemoveFrequent = ShellContextMenu.FirstCustomId + 16;
     private const int CmdCompressBase = ShellContextMenu.FirstCustomId + 20; // + (int)ArchiveFormat
     private const int CmdTagBase = ShellContextMenu.FirstCustomId + 200;
     private const int CmdChoiceLimit = 50;
@@ -1077,6 +1078,8 @@ public partial class MainWindow : Window
         {
             var pinned = QuickAccess.IsShown(folderPath);
             custom.Add(new CustomMenuItem { Text = pinned ? "Unpin from Quick access" : "Pin to Quick access", Id = pinned ? CmdUnpin : CmdPin });
+            if (!pinned && Tab?.IsHome == true && FrequentFolders.IsShown(folderPath))
+                custom.Add(new CustomMenuItem { Text = "Remove from frequent", Id = CmdRemoveFrequent });
         }
         AddM3Entries(custom, items);
 
@@ -1100,6 +1103,9 @@ public partial class MainWindow : Window
                 break;
             case MenuResultKind.Custom when result.CustomId == CmdUnpin && items[0].Entry.Path is { } p:
                 ViewModel.Sidebar.Unpin(p);
+                break;
+            case MenuResultKind.Custom when result.CustomId == CmdRemoveFrequent && items[0].Entry.Path is { } p:
+                FrequentFolders.Remove(p);
                 break;
             case MenuResultKind.Custom when result.CustomId == CmdStar:
                 ViewModel.ToggleStar(items);
@@ -1208,6 +1214,8 @@ public partial class MainWindow : Window
             var pinned = QuickAccess.IsShown(folderPath);
             menu.Items.Add(MenuEntry(pinned ? "Unpin from Quick access" : "Pin to Quick access", null,
                 () => { if (pinned) QuickAccess.Unpin(folderPath); else QuickAccess.Pin(folderPath); }, null));
+            if (!pinned && Tab?.IsHome == true && FrequentFolders.IsShown(folderPath))
+                menu.Items.Add(MenuEntry("Remove from frequent", null, () => FrequentFolders.Remove(folderPath), null));
         }
         if (items.Any(i => i.Entry.RecentLink is not null))
             menu.Items.Add(MenuEntry("Remove from Recent", null, async () => await ViewModel.RemoveFromRecentAsync(items), null));
@@ -1362,6 +1370,8 @@ public partial class MainWindow : Window
         {
             var pinned = QuickAccess.IsShown(path);
             custom.Add(new CustomMenuItem { Text = pinned ? "Unpin from Quick access" : "Pin to Quick access", Id = pinned ? CmdUnpin : CmdPin });
+            if (!pinned && FrequentFolders.IsShown(path))
+                custom.Add(new CustomMenuItem { Text = "Remove from frequent", Id = CmdRemoveFrequent });
         }
         if (folder.FileSystemPath is { } starPath)
             custom.Add(new CustomMenuItem { Text = Stars.IsStarred(starPath) ? "Remove from Starred" : "Add to Starred", Id = CmdStar });
@@ -1380,6 +1390,9 @@ public partial class MainWindow : Window
                 break;
             case MenuResultKind.Custom when result.CustomId == CmdUnpin:
                 ViewModel.Sidebar.Unpin(folder.FileSystemPath!);
+                break;
+            case MenuResultKind.Custom when result.CustomId == CmdRemoveFrequent:
+                FrequentFolders.Remove(folder.FileSystemPath!);
                 break;
             case MenuResultKind.Custom when result.CustomId == CmdStar:
                 Stars.Toggle([folder.FileSystemPath!]);

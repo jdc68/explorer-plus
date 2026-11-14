@@ -70,6 +70,7 @@ public partial class App : Application
         _ = ShellNewTemplates.GetAsync(); // read the New ▸ list in the background so the menu opens instantly
         FolderSizeWatcher.Start();
         ThumbnailService.Start();
+        FrequentFolders.Start();
         DispatcherUnhandledException += (_, args) =>
         {
             args.Handled = true;

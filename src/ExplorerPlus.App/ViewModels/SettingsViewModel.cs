@@ -149,6 +149,16 @@ public sealed class SettingsViewModel : ObservableObject
     public bool ShowGallery { get => S.ShowGallery; set => Change(() => S.ShowGallery = value); }
     public bool ShowLibraries { get => S.ShowLibraries; set => Change(() => S.ShowLibraries = value); }
     public bool ShowRecentFiles { get => S.ShowRecentFiles; set => Change(() => S.ShowRecentFiles = value); }
+    public bool ShowFrequentFolders { get => S.ShowFrequentFolders; set => Change(() => S.ShowFrequentFolders = value); }
+
+    private string _frequentMessage = "";
+    public string FrequentMessage { get => _frequentMessage; private set => Set(ref _frequentMessage, value); }
+
+    public void ClearFrequentFolders()
+    {
+        FrequentFolders.Clear();
+        FrequentMessage = "Folder history cleared.";
+    }
 
     // ---------- Context menu ----------
 

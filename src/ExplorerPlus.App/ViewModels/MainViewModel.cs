@@ -275,7 +275,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private static void OnAnyTabPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(TabViewModel.Location) && sender is TabViewModel tab) JumpLists.NoteVisited(tab.Location);
+        if (e.PropertyName != nameof(TabViewModel.Location) || sender is not TabViewModel tab) return;
+        JumpLists.NoteVisited(tab.Location);
+        FrequentFolders.NoteVisited(tab.Location);
     }
 
     /// <summary>Takes a tab out of this window without disposing it: it is moving to another window.</summary>
