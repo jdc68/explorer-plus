@@ -1,4 +1,5 @@
 using ExplorerPlus.App.Services;
+using ExplorerPlus.Core.Integration;
 
 namespace ExplorerPlus.App;
 
@@ -13,6 +14,8 @@ public static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        InheritedEnvironment.RemoveClaudeVariables();
+
         // Folder links and "Show in folder" usually find Explorer+ already running. Hand the arguments over before
         // WPF, App.xaml and the theme load, so the second process lives for a few milliseconds instead of a second.
         SingleInstance? instance = null;
