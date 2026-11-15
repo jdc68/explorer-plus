@@ -415,6 +415,11 @@ Verified on a dev build in an isolated profile on this machine: the four folders
 - The shelf keeps paths only (never copies), shows names and icons with a count, and survives a restart of Explorer+ (the paths in settings, items that no longer exist drop out). Items drag out as a normal file drag (`SHCreateDataObject` with the PIDLs), with the shell's drop effects. A shortcut and the palette ("Add to shelf", "Show shelf") add the selection without dragging.
 - Decide with the user: whether the shelf appears by itself when a drag starts in Explorer+ (as on macOS) or only from a button, where it docks, and whether moved items are removed from the shelf at once.
 
+**I22: stop leaking Claude Code's environment.**
+- [#26](https://github.com/jdc68/explorer-plus/issues/26) An Explorer+ started from a Claude Code session inherits its `CLAUDE_*` variables and hands them to every terminal and app it opens (`ShellLauncher` uses `ShellExecuteEx`, which copies the environment). `claude` in such a terminal thinks it is a child session ("Transcript saving is off", no local history, so chats may be missing from `--resume`). Cause is likely but was not read from the running process.
+- Fix: at the top of `Program.Main`, before the mutex, remove `CLAUDECODE`, `CLAUDE_PID`, `CLAUDE_EFFORT` and every `CLAUDE_CODE_*` variable from the process environment, with a test. Small, so it can be done at any point, before I15 if wanted. Restart the running instance afterwards (`build.ps1 -Install` does it).
+- The user's PowerShell profile already removes `CLAUDE_CODE_CHILD_SESSION` in new Windows PowerShell windows; it stays as a backup.
+
 **M7: remote locations and plugins (postponed; future plan, not scheduled).** Comes after the issue steps above.
 - SFTP, WebDAV and S3 as locations in the sidebar and address bar, listed and browsed like folders, with copy, move and delete going through the same queue.
 - A plugin API: columns, preview handlers, item menu commands and locations from separate assemblies.
