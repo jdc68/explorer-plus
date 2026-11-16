@@ -604,6 +604,18 @@
                         <TextBlock Text="Terminal" VerticalAlignment="Center" />
                     </StackPanel>
                 </Button>
+                <Button Style="{StaticResource CommandButton}" Click="OnPaletteClick" ToolTip="Command palette (Ctrl+K)" AutomationProperties.Name="Command palette">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="&#xE765;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                        <TextBlock Text="Command palette" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+                <Button Style="{StaticResource CommandButton}" Click="OnSettingsClick" ToolTip="Settings (Ctrl+,)" AutomationProperties.Name="Settings">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="&#xE713;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                        <TextBlock Text="Settings" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
                 <Button Style="{StaticResource IconButton}" Content="&#xE946;" Click="OnPropertiesClick" ToolTip="Properties (Alt+Enter)" AutomationProperties.Name="Properties" />
                 <!-- Actions that belong to the current location -->
                 <StackPanel Orientation="Horizontal" Visibility="{Binding SelectedTab.IsRecycleBin, Converter={StaticResource BoolToVis}}">

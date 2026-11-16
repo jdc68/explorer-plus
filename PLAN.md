@@ -2,13 +2,13 @@
 
 A fast, keyboard-friendly file manager for Windows 11, built for work and everyday use.
 
-## Status (16 Nov 2026)
+## Status (17 Nov 2026)
 
-- **Now: I23**, Command palette and Settings on the toolbar ([#27](https://github.com/jdc68/explorer-plus/issues/27)). Its spec is the first one in section 6.
-- **Then, in this order:** I16 "what is using this file?", I17 recent changes, I18 big, old and empty finders, I19 flat view, I20 disk usage treemap, I21 drop shelf.
+- **Now: I16**, "what is using this file?". Its spec is the first one in section 6; its "Decide with the user" lines are still open.
+- **Then, in this order:** I17 recent changes, I18 big, old and empty finders, I19 flat view, I20 disk usage treemap, I21 drop shelf.
 - **Backlog, only when the user asks:** I14, Save and Open dialogs ([#9](https://github.com/jdc68/explorer-plus/issues/9)).
 - **Postponed:** M7, remote locations and plugins.
-- **Done:** M1 to M6, I1 to I13, I15 (closed for now), I22. What was built, the findings and the checks made are in [HISTORY.md](HISTORY.md). What is still open from them is in section 6, under "Open checks" and "Loose ends".
+- **Done:** M1 to M6, I1 to I13, I15 (closed for now), I22, I23 (0.1.33). What was built, the findings and the checks made are in [HISTORY.md](HISTORY.md). What is still open from them is in section 6, under "Open checks" and "Loose ends".
 
 How this file is kept:
 - This section is the only place that gives the order. Update it when a step starts or finishes, or when the user changes the order.
@@ -135,20 +135,9 @@ Hidden menu entries stay reachable with Shift+right-click, which shows the full,
 
 ## 6. Roadmap
 
-### Now
+### Now and next, in order
 
-**I23: Command palette and Settings on the toolbar.**
-- [#27](https://github.com/jdc68/explorer-plus/issues/27) Two entries the user reaches through the More (⋯) menu move onto the toolbar: "Command palette" (Ctrl+K) and "Settings" (Ctrl+,). The toolbar is the `WrapPanel` in `MainWindow.xaml`. They become labelled `CommandButton`s like New, Sort, View and Terminal (icon, label, tooltip with the shortcut).
-- They go right after Terminal and before the Properties icon button. They leave the More menu (`OnMoreMenuClick` in `MainWindow.xaml.cs`), so they aren't listed twice. The shortcuts and the palette's own entries stay as they are.
-- Each button gets an `AutomationProperties.Name`, like the other toolbar buttons.
-- Decide with the user:
-  - The palette's icon: its More entry has none; Settings uses ``.
-  - Narrow windows: whether the labels stay or the buttons shrink to icons. Today the toolbar just wraps.
-- Done means: both buttons open what the menu entries did, in light and dark, with the window split or not. The More menu no longer lists them. Checked on a dev build in its own profile.
-
-### Next, in order
-
-From the 14 Nov 2026 brainstorm, in the order chosen with the user (not GitHub issues). What hurts every day comes first, then the features that reuse the index service, then the ones with their own UI. I15, the performance budget, came first in that list. Speed is the product's main promise, and these features can slow it down, so run `installer/perf.ps1` after any of them that touches the file list, loading or startup. Each spec is only a sketch.
+From the 14 Nov 2026 brainstorm, in the order chosen with the user (not GitHub issues). The first spec below is the current step. What hurts every day comes first, then the features that reuse the index service, then the ones with their own UI. I15, the performance budget, came first in that list. Speed is the product's main promise, and these features can slow it down, so run `installer/perf.ps1` after any of them that touches the file list, loading or startup. Each spec is only a sketch.
 
 **I16: "what is using this file?"**
 - When delete, move, rename or replace fails because another process holds the file (`ERROR_SHARING_VIOLATION`, `ERROR_LOCK_VIOLATION`), say which process. The Restart Manager API (`RmStartSession`, `RmRegisterResources`, `RmGetList`) lists the applications that hold a file or the files under a folder, with no elevation for the user's own processes. Also an item-menu entry "What is using this?" for a selection, and a result list with the process name, id and a "Close" button that asks the app to quit (`RmShutdown`; never a kill without a second confirmation).
@@ -225,6 +214,7 @@ Gathered from the finished steps; the step in brackets has the details in HISTOR
   - Removal when Explorer+ is uninstalled, a second Windows user, and results tabs restored from the session [M6].
   - The app right after the service starts, before sizes are read [I4].
 - **Settings:** the Settings window's buttons [I2], and switching Light and Dark while a menu is in use [I1].
+- **Toolbar:** the Command palette and Settings buttons in a split window [I23].
 - **This PC and the sidebar:**
   - This PC with network drives and locations, a phone, an optical drive, and a USB stick plugged in and pulled while the page is open [I11].
   - Frequent folders: the right-click entries, the Settings checkbox, and a frequent folder on a share that goes offline [I12].
@@ -233,7 +223,6 @@ Gathered from the finished steps; the step in brackets has the details in HISTOR
 ### Loose ends
 
 Known gaps left on purpose. Each one could become a step if the user wants it.
-- **GitHub:** #15 (I12) and #25 (I13) are still open although their steps are done. Close them once the user agrees.
 - **Folder sizes:** index sizes don't update while a folder is open, because only the walk's cache raises change events [I4].
 - **Releases:**
   - Release notes are the commit subjects. Writing them by hand is still undecided.

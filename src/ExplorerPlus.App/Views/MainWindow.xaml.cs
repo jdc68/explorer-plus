@@ -557,6 +557,8 @@ public partial class MainWindow : Window
     private async void OnDeleteClick(object sender, RoutedEventArgs e) => await ViewModel.DeleteAsync(Selection, permanent: Keyboard.Modifiers.HasFlag(ModifierKeys.Shift));
     private async void OnTerminalClick(object sender, RoutedEventArgs e) => await ViewModel.OpenTerminalAsync();
     private void OnPropertiesClick(object sender, RoutedEventArgs e) => ShowProperties();
+    private void OnPaletteClick(object sender, RoutedEventArgs e) => ShowPalette();
+    private void OnSettingsClick(object sender, RoutedEventArgs e) => ShowSettings();
     private void OnStarClick(object sender, RoutedEventArgs e) => ViewModel.ToggleStar(Selection);
     private void OnEmptyRecycleBinClick(object sender, RoutedEventArgs e) => ViewModel.EmptyRecycleBin();
     private void OnRestoreAllClick(object sender, RoutedEventArgs e) => ViewModel.Restore(FileList.Items.Cast<ItemViewModel>().ToList());
@@ -646,7 +648,6 @@ public partial class MainWindow : Window
         var look = MenuEntry("Quick Look", "Space", ToggleQuickLook, "");
         look.IsEnabled = FileList.SelectedItems.Count > 0;
         menu.Items.Add(look);
-        menu.Items.Add(MenuEntry("Command palette", "Ctrl+K", ShowPalette, ""));
         menu.Items.Add(new Separator());
         menu.Items.Add(MenuEntry("Open terminal as administrator", null, async () => await ViewModel.OpenTerminalAsync(elevated: true), ""));
         menu.Items.Add(MenuEntry("Open in new window", "Ctrl+N", NewWindowHere, ""));
@@ -659,7 +660,6 @@ public partial class MainWindow : Window
         menu.Items.Add(MenuEntry("Disconnect network drive…", null, ViewModel.DisconnectNetworkDrive, "\uE8CD"));
         menu.Items.Add(MenuEntry("Empty Recycle Bin", null, ViewModel.EmptyRecycleBin, "\uE74D"));
         menu.Items.Add(new Separator());
-        menu.Items.Add(MenuEntry("Settings", "Ctrl+,", ShowSettings, "\uE713"));
         menu.Items.Add(MenuEntry("Exit", null, App.ExitAll, ""));
         menu.IsOpen = true;
     }
