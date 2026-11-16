@@ -4,15 +4,15 @@ A fast, keyboard-friendly file manager for Windows 11, built for work and everyd
 
 ## Status (17 Nov 2026)
 
-- **Now: I16**, "what is using this file?". Its spec is the first one in section 6; its "Decide with the user" lines are still open.
-- **Then, in this order:** I17 recent changes, I18 big, old and empty finders, I19 flat view, I20 disk usage treemap, I21 drop shelf.
+- **Now: I24**, a new folder doesn't go into rename ([#28](https://github.com/jdc68/explorer-plus/issues/28)). It's a bug in an everyday action, so it goes ahead of the features; the user can reorder. Its spec is the first one in section 6.
+- **Then, in this order:** I16 "what is using this file?" (its "Decide with the user" lines are still open), I17 recent changes, I18 big, old and empty finders, I19 flat view, I20 disk usage treemap, I21 drop shelf.
 - **Backlog, only when the user asks:** I14, Save and Open dialogs ([#9](https://github.com/jdc68/explorer-plus/issues/9)).
 - **Postponed:** M7, remote locations and plugins.
 - **Done:** M1 to M6, I1 to I13, I15 (closed for now), I22, I23 (0.1.33). What was built, the findings and the checks made are in [HISTORY.md](HISTORY.md). What is still open from them is in section 6, under "Open checks" and "Loose ends".
 
 How this file is kept:
 - This section is the only place that gives the order. Update it when a step starts or finishes, or when the user changes the order.
-- A new step takes the next free number (I24 is next) and keeps it for good, since commits and issues refer to it. Its spec goes into section 6 and its place in the order goes here.
+- A new step takes the next free number (I25 is next) and keeps it for good, since commits and issues refer to it. Its spec goes into section 6 and its place in the order goes here.
 - A step's "Decide with the user" lines are settled before it is built.
 - When a step is done, its spec and write-up (what was built, findings, how it was checked) move to HISTORY.md. Its "not tried by hand" items go to "Open checks" and anything left for later to "Loose ends". Section 7 is updated when files are added, section 8 when something is measured, and section 5 when the user makes a decision that must hold.
 
@@ -137,7 +137,13 @@ Hidden menu entries stay reachable with Shift+right-click, which shows the full,
 
 ### Now and next, in order
 
-From the 14 Nov 2026 brainstorm, in the order chosen with the user (not GitHub issues). The first spec below is the current step. What hurts every day comes first, then the features that reuse the index service, then the ones with their own UI. I15, the performance budget, came first in that list. Speed is the product's main promise, and these features can slow it down, so run `installer/perf.ps1` after any of them that touches the file list, loading or startup. Each spec is only a sketch.
+**I24: a new folder doesn't go into rename.**
+- [#28](https://github.com/jdc68/explorer-plus/issues/28) After New ▸ Folder, the folder is created as "New folder" but no rename box opens, so a name can't be typed. Since M3 a new item goes into rename (`TabViewModel` raises the rename for the pane that shows the tab; `MainWindow.Panes` wires `RenameRequested` to `BeginRename`).
+- Likely suspect: I15 changed the rename box into a `RenameHost` that is only built while it shows, and it focuses itself on `Loaded`. F2 on an existing item was checked then, but rename right after New wasn't. The new row may not be realized or selected yet when the rename is asked for, or the focus may go back to the list after the host loads.
+- Reproduce on a dev build in its own profile: New ▸ Folder and New ▸ Text Document, from the toolbar, the background menu and `Ctrl+Shift+N`, in Details and in an icon view, and in the right pane. Fix it, then add a `ViewTests` check that a newly added item ends up with a focused rename box.
+- Done means: typing right after New names the item and Enter keeps the name, in every case above.
+
+From the 14 Nov 2026 brainstorm, in the order chosen with the user (not GitHub issues). What hurts every day comes first, then the features that reuse the index service, then the ones with their own UI. I15, the performance budget, came first in that list. Speed is the product's main promise, and these features can slow it down, so run `installer/perf.ps1` after any of them that touches the file list, loading or startup. Each spec is only a sketch.
 
 **I16: "what is using this file?"**
 - When delete, move, rename or replace fails because another process holds the file (`ERROR_SHARING_VIOLATION`, `ERROR_LOCK_VIOLATION`), say which process. The Restart Manager API (`RmStartSession`, `RmRegisterResources`, `RmGetList`) lists the applications that hold a file or the files under a folder, with no elevation for the user's own processes. Also an item-menu entry "What is using this?" for a selection, and a result list with the process name, id and a "Close" button that asks the app to quit (`RmShutdown`; never a kill without a second confirmation).
