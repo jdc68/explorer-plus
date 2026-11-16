@@ -384,6 +384,11 @@ I13 built (16 Nov 2026):
 - Checked again with the installed 0.1.32 on the 2560 × 1440 main monitor while the user's HoverPreview ran: photo, video, code file and song showed at their place, a photo hovered at the right edge opened left of the cursor, and HoverPreview never showed its own popup.
 - Not tried by hand: a monitor with another scale (both of the user's are at 100%), HEIC/RAW through the shell thumbnail, the light theme, the right pane.
 
+**I23: Command palette and Settings in the top toolbar (not built yet; the user's call on the order).**
+- [#27](https://github.com/jdc68/explorer-plus/issues/27) The two entries the user reached through the More (⋯) menu move onto the toolbar, in the same `CommandButton` style as Sort, View, Dual pane and Terminal (icon, label, tooltip with the shortcut): "Command palette" (Ctrl+K) and "Settings" (Ctrl+,). They go right after Terminal, before Properties, and leave the More menu, so they aren't listed twice. Shortcuts and the palette entries stay as they are.
+- Decide with the user when built: the icon for the palette (no glyph is used for it in the menu yet), and whether the labels stay on narrow windows or the buttons shrink to icons (the toolbar is a `WrapPanel`, so it wraps first).
+- Each button gets an `AutomationProperties.Name`, like the other toolbar buttons.
+
 **I14: Save and Open dialogs (backlog; not in active development).**
 - Moved to the backlog by the user on 14 Nov 2026, after the options below and a "pick in Explorer+" window (Explorer+ opens over the dialog, then fills the path into it and presses Save) were explained. The user didn't like these approaches, so none of them is planned. Issue #9 stays open. Come back to it only when the user asks.
 - [#9](https://github.com/jdc68/explorer-plus/issues/9) Browsers and other apps open Windows' own Save and Open dialogs (the common item dialog, `IFileDialog`), which run inside those apps and use Explorer's code. The default-file-manager registration can't change that (section 4, known limits), and replacing the dialog itself would mean injecting into every process, which is off the table. Options to weigh with the user before building anything:
@@ -457,11 +462,6 @@ I13 built (16 Nov 2026):
 - [#26](https://github.com/jdc68/explorer-plus/issues/26) An Explorer+ started from a Claude Code session inherits its `CLAUDE_*` variables and hands them to every terminal and app it opens (`ShellLauncher` uses `ShellExecuteEx`, which copies the environment). `claude` in such a terminal thinks it is a child session ("Transcript saving is off", no local history, so chats may be missing from `--resume`). Cause is likely but was not read from the running process.
 - Fix: the first line of `Program.Main`, before the mutex, calls `Core/Integration/InheritedEnvironment.RemoveClaudeVariables`, which removes `CLAUDECODE`, `CLAUDE_PID`, `CLAUDE_EFFORT` and every `CLAUDE_CODE_*` variable from the process environment (`InheritedEnvironmentTests`). Done before I15, as chosen with the user.
 - The user's PowerShell profile already removes `CLAUDE_CODE_CHILD_SESSION` in new Windows PowerShell windows; it stays as a backup.
-
-**I23: Command palette and Settings in the top toolbar (not built yet; comes after I21, the user's call on the order).**
-- [#27](https://github.com/jdc68/explorer-plus/issues/27) The two entries the user reached through the More (⋯) menu move onto the toolbar, in the same `CommandButton` style as Sort, View, Dual pane and Terminal (icon, label, tooltip with the shortcut): "Command palette" (Ctrl+K) and "Settings" (Ctrl+,). They go right after Terminal, before Properties, and leave the More menu, so they aren't listed twice. Shortcuts and the palette entries stay as they are.
-- Decide with the user when built: the icon for the palette (no glyph is used for it in the menu yet), and whether the labels stay on narrow windows or the buttons shrink to icons (the toolbar is a `WrapPanel`, so it wraps first).
-- Each button gets an `AutomationProperties.Name`, like the other toolbar buttons.
 
 **M7: remote locations and plugins (postponed; future plan, not scheduled).** Comes after the issue steps above.
 - SFTP, WebDAV and S3 as locations in the sidebar and address bar, listed and browsed like folders, with copy, move and delete going through the same queue.
