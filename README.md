@@ -91,4 +91,4 @@ dotnet build ExplorerPlus.sln
 dotnet test tests/ExplorerPlus.Core.Tests
 ```
 
-[PLAN.md](PLAN.md) holds the design decisions, milestones and what is planned next.
+[PLAN.md](PLAN.md) holds the design decisions and what is planned next; [HISTORY.md](HISTORY.md) records what was built.
