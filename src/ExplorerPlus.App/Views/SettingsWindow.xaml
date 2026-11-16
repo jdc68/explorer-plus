@@ -162,6 +162,9 @@
                     <TextBlock Style="{StaticResource Hint}"
                                Text="The 5 folders you open most often in Explorer+, under the pins in Quick access and on Home. Right-click one to pin it or remove it." />
                     <TextBlock Text="{Binding FrequentMessage}" Style="{StaticResource Hint}" />
+                    <CheckBox Content="Keep Windows' Quick access in step with Explorer+" IsChecked="{Binding SyncQuickAccess}" Margin="0,8,0,0" />
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="Explorer+'s pins and standard folders are copied to File Explorer's Quick access, which the Open and Save dialogs use too. Changes made there are put back." />
                 </StackPanel>
             </Border>
 

@@ -150,6 +150,7 @@ public sealed class SettingsViewModel : ObservableObject
     public bool ShowLibraries { get => S.ShowLibraries; set => Change(() => S.ShowLibraries = value); }
     public bool ShowRecentFiles { get => S.ShowRecentFiles; set => Change(() => S.ShowRecentFiles = value); }
     public bool ShowFrequentFolders { get => S.ShowFrequentFolders; set => Change(() => S.ShowFrequentFolders = value); }
+    public bool SyncQuickAccess { get => S.SyncQuickAccess; set => Change(() => S.SyncQuickAccess = value); }
 
     private string _frequentMessage = "";
     public string FrequentMessage { get => _frequentMessage; private set => Set(ref _frequentMessage, value); }

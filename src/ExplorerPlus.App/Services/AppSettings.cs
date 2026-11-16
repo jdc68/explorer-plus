@@ -72,6 +72,12 @@ public sealed class AppSettings
     /// <summary>Frequently opened folders under the pins in Quick access, and on Home.</summary>
     public bool ShowFrequentFolders { get; set; } = true;
 
+    /// <summary>Keep Windows' Quick access (File Explorer and the Open/Save dialogs) equal to the pins and standard folders here.</summary>
+    public bool SyncQuickAccess { get; set; } = true;
+
+    // Windows' own pins were taken over once, before Explorer+ started to push its list
+    public bool QuickAccessImported { get; set; }
+
     public List<FolderVisit> FolderHistory { get; set; } = [];
 
     // File Explorer's frequent folders were taken over once

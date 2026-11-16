@@ -97,8 +97,7 @@ public static class FolderHistory
         foreach (var entry in ShellFolderEnumerator.Enumerate(folder))
         {
             if (!entry.IsFolder || entry.Path is null || entry.Pidl is null) continue;
-            var pinned = PropertyReader.Read(null, entry.Pidl, ["System.Home.IsPinned"]);
-            if (pinned.TryGetValue("System.Home.IsPinned", out var v) && v.Sort is long b && b != 0) continue;
+            if (WindowsQuickAccess.IsPinned(entry.Pidl)) continue;
             result.Add(entry.Path);
         }
         return result;

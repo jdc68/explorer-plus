@@ -61,9 +61,9 @@ public static class QuickAccess
         settings.NotifyChanged();
     }
 
-    private static bool IsStandard(string path) => StandardFolders().Any(f => f.Path is not null && SamePath(f.Path, path));
+    public static bool IsStandard(string path) => StandardFolders().Any(f => f.Path is not null && SamePath(f.Path, path));
 
-    private static IEnumerable<(string Name, string? Path)> StandardFolders()
+    public static IEnumerable<(string Name, string? Path)> StandardFolders()
     {
         yield return ("Desktop", Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory));
         yield return ("Downloads", KnownFolderPath(DownloadsId));

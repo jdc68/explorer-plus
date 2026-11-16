@@ -71,6 +71,7 @@ public partial class App : Application
         FolderSizeWatcher.Start();
         ThumbnailService.Start();
         FrequentFolders.Start();
+        QuickAccessSync.Start();
         DispatcherUnhandledException += (_, args) =>
         {
             args.Handled = true;
