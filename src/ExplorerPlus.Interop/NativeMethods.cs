@@ -155,6 +155,9 @@ public static class Kernel32
 
     public const uint SEM_FAILCRITICALERRORS = 0x1;
     public const uint SEM_NOOPENFILEERRORBOX = 0x8000;
+
+    [DllImport("kernel32.dll")]
+    public static extern uint GetACP();
 }
 
 public static class User32
@@ -243,6 +246,50 @@ public static class User32
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool AddClipboardFormatListener(IntPtr hwnd);
 
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool SetPropW(IntPtr hWnd, string lpString, IntPtr hData);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern IntPtr RemovePropW(IntPtr hWnd, string lpString);
+
+    [DllImport("user32.dll", EntryPoint = "GetClassLongPtrW")]
+    public static extern IntPtr GetClassLongPtr(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll", EntryPoint = "SetClassLongPtrW")]
+    public static extern IntPtr SetClassLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr MonitorFromPoint(POINT pt, uint dwFlags);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GetMonitorInfoW(IntPtr hMonitor, ref MONITORINFO lpmi);
+
+    [DllImport("shcore.dll")]
+    public static extern int GetDpiForMonitor(IntPtr hmonitor, int dpiType, out uint dpiX, out uint dpiY);
+
+    public const uint MONITOR_DEFAULTTONEAREST = 2;
+    public const int MDT_EFFECTIVE_DPI = 0;
+    public static readonly IntPtr HWND_TOPMOST = new(-1);
+    public const uint SWP_NOSIZE = 0x1;
+    public const uint SWP_NOMOVE = 0x2;
+    public const uint SWP_NOACTIVATE = 0x10;
+    public const int GWL_EXSTYLE = -20;
+    public const int GCL_STYLE = -26;
+    public const long WS_EX_TOOLWINDOW = 0x80;
+    public const long WS_EX_NOACTIVATE = 0x08000000;
+    public const long CS_DROPSHADOW = 0x20000;
+    public const int WM_NCHITTEST = 0x84;
+    public const int WM_MOUSEACTIVATE = 0x21;
+    public const int WM_DESTROY = 0x2;
+    public const int HTTRANSPARENT = -1;
+    public const int MA_NOACTIVATE = 3;
+
     public const int ASFW_ANY = -1;
     public const int WM_CLIPBOARDUPDATE = 0x031D;
     public const int SW_RESTORE = 9;
@@ -277,4 +324,6 @@ public static class Dwmapi
     public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
 
     public const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
+    public const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+    public const int DWMWCP_ROUND = 2;
 }

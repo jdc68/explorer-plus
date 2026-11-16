@@ -145,6 +145,33 @@
                 </StackPanel>
             </Border>
 
+            <!-- ===== Preview ===== -->
+            <TextBlock Text="Preview" Style="{StaticResource Section}" />
+            <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <CheckBox Content="Preview on hover" IsChecked="{Binding HoverPreview}" Margin="0" />
+                    <TextBlock Text="Rest the mouse on a photo, video, song or text file and it shows next to the cursor. Moving away, a click or a key closes it." Style="{StaticResource Hint}" />
+                    <Grid Margin="28,6,0,0" IsEnabled="{Binding HoverPreview}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="200" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBlock x:Name="HoverDelayLabel" Text="Hover delay" Style="{StaticResource Label}" />
+                        <ComboBox Grid.Column="1" ItemsSource="{Binding HoverDelays}" SelectedItem="{Binding HoverDelay}"
+                                  AutomationProperties.LabeledBy="{Binding ElementName=HoverDelayLabel}" />
+                        <TextBlock x:Name="HoverSizeLabel" Grid.Row="1" Text="Preview size" Style="{StaticResource Label}" Margin="0,6,0,0" />
+                        <ComboBox Grid.Row="1" Grid.Column="1" Margin="0,6,0,0" ItemsSource="{Binding HoverSizes}" SelectedItem="{Binding HoverSize}"
+                                  AutomationProperties.LabeledBy="{Binding ElementName=HoverSizeLabel}" />
+                        <CheckBox Grid.Row="2" Grid.ColumnSpan="2" Content="Play sound in videos" IsChecked="{Binding HoverSound}" Margin="0,8,0,4" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
             <!-- ===== Navigation pane and Home ===== -->
             <TextBlock Text="Navigation pane and Home" Style="{StaticResource Section}" />
             <Border Style="{StaticResource Card}">

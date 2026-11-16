@@ -94,6 +94,12 @@ public sealed class AppSettings
 
     public bool SmoothScrolling { get; set; } = true;
 
+    // rest the mouse on a photo, video, song or text file to see it next to the cursor
+    public bool HoverPreview { get; set; } = true;
+    public int HoverDelayMs { get; set; } = 300;
+    public int HoverSize { get; set; } = 600;
+    public bool HoverSound { get; set; } = true;
+
     /// <summary>System, Light or Dark.</summary>
     public string Theme { get; set; } = "System";
 

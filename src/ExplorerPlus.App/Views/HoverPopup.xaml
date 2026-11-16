@@ -1,0 +1,81 @@
+<Window x:Class="ExplorerPlus.App.Views.HoverPopup"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Preview - Explorer+" WindowStyle="None" ResizeMode="NoResize" ShowInTaskbar="False" ShowActivated="False"
+        Topmost="True" Focusable="False" WindowStartupLocation="Manual" SizeToContent="Manual"
+        UseLayoutRounding="True" TextOptions.TextFormattingMode="Display"
+        Background="{DynamicResource SolidBackgroundFillColorBaseBrush}"
+        Foreground="{DynamicResource TextFillColorPrimaryBrush}">
+
+    <!-- no Fluent chrome: the window is exactly its content, so it can be measured before it shows -->
+    <Window.Template>
+        <ControlTemplate TargetType="Window">
+            <Border Background="{TemplateBinding Background}">
+                <ContentPresenter />
+            </Border>
+        </ControlTemplate>
+    </Window.Template>
+
+    <Window.Resources>
+        <DrawingBrush x:Key="Checker" TileMode="Tile" Viewport="0,0,16,16" ViewportUnits="Absolute">
+            <DrawingBrush.Drawing>
+                <GeometryDrawing Brush="{DynamicResource SubtleFillColorSecondaryBrush}" Geometry="M0,0 H8 V8 H0 Z M8,8 H16 V16 H8 Z" />
+            </DrawingBrush.Drawing>
+        </DrawingBrush>
+    </Window.Resources>
+
+    <Grid x:Name="Root" MinWidth="280" Margin="6,6,6,0">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Grid x:Name="Media" HorizontalAlignment="Center">
+            <Border x:Name="PictureBack">
+                <Image x:Name="Picture" Stretch="Fill" RenderOptions.BitmapScalingMode="HighQuality" />
+            </Border>
+            <Image x:Name="Video" Stretch="Fill" />
+            <Border x:Name="TextArea" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}" CornerRadius="4" ClipToBounds="True">
+                <TextBlock x:Name="TextView" Margin="12,10" FontFamily="Cascadia Mono, Consolas" FontSize="13" TextWrapping="Wrap" />
+            </Border>
+        </Grid>
+
+        <Grid x:Name="VideoProgress" Grid.Row="1" Height="2" Margin="0,3,0,0">
+            <Rectangle Fill="{DynamicResource ControlStrongFillColorDisabledBrush}" />
+            <Rectangle x:Name="VideoFill" HorizontalAlignment="Left" Width="0" Fill="{DynamicResource AccentFillColorDefaultBrush}" />
+        </Grid>
+
+        <DockPanel x:Name="Footer" Grid.Row="2" Height="30" Margin="4,0">
+            <TextBlock x:Name="InfoText" DockPanel.Dock="Right" Margin="12,0,0,0" VerticalAlignment="Center" FontSize="12"
+                       TextTrimming="CharacterEllipsis" Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+            <TextBlock x:Name="NameText" VerticalAlignment="Center" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+        </DockPanel>
+
+        <!-- songs, and files Windows can't play -->
+        <Grid x:Name="Card" Grid.RowSpan="3" Width="388" Height="86" Margin="0,0,0,6">
+            <Border Width="64" Height="64" CornerRadius="6" Margin="8,0,0,0" HorizontalAlignment="Left" VerticalAlignment="Center"
+                    Background="{DynamicResource ControlFillColorSecondaryBrush}" ClipToBounds="True">
+                <Grid>
+                    <TextBlock x:Name="CardGlyph" FontFamily="{DynamicResource IconFont}" FontSize="28" HorizontalAlignment="Center"
+                               VerticalAlignment="Center" Foreground="{DynamicResource AccentFillColorDefaultBrush}" />
+                    <Image x:Name="Cover" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality" />
+                </Grid>
+            </Border>
+            <StackPanel Margin="86,10,10,0">
+                <TextBlock x:Name="CardName" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                <TextBlock x:Name="CardInfo" Margin="0,2,0,0" FontSize="12" TextTrimming="CharacterEllipsis"
+                           Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                <DockPanel x:Name="CardProgress" Margin="0,12,0,0">
+                    <TextBlock x:Name="CardTime" DockPanel.Dock="Right" Margin="12,0,0,0" FontSize="12"
+                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                    <Grid x:Name="CardTrack" Height="4" VerticalAlignment="Center">
+                        <Rectangle RadiusX="2" RadiusY="2" Fill="{DynamicResource ControlStrongFillColorDisabledBrush}" />
+                        <Rectangle x:Name="CardFill" HorizontalAlignment="Left" Width="0" RadiusX="2" RadiusY="2"
+                                   Fill="{DynamicResource AccentFillColorDefaultBrush}" />
+                    </Grid>
+                </DockPanel>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

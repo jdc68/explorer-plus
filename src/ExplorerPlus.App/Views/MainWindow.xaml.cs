@@ -37,6 +37,9 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         InitPanes();
+        var hover = new HoverPreview(this);
+        hover.Attach(LeftList);
+        hover.Attach(RightList);
         _initialTargets = targets;
         _initialSelect = select;
         ViewModel = new MainViewModel(() => _hwnd);

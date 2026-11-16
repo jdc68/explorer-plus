@@ -14,7 +14,7 @@ public static class ThumbnailExtractor
     /// top-down BGRA pixels. Uses Windows' thumbnail cache, so it's the same image Explorer shows.
     /// Must run on an STA thread.
     /// </summary>
-    public static RawImage? Get(string? path, Pidl? pidl, int size, bool iconOnly = false)
+    public static RawImage? Get(string? path, Pidl? pidl, int size, bool iconOnly = false, bool thumbnailOnly = false)
     {
         IShellItemImageFactory? factory = null;
         try
@@ -30,7 +30,7 @@ public static class ThumbnailExtractor
             else return null;
             if (hr != 0 || factory is null) return null;
 
-            var flags = SIIGBF.RESIZETOFIT | (iconOnly ? SIIGBF.ICONONLY : 0);
+            var flags = SIIGBF.RESIZETOFIT | (iconOnly ? SIIGBF.ICONONLY : 0) | (thumbnailOnly ? SIIGBF.THUMBNAILONLY : 0);
             var image = Fetch(factory, size, flags);
             // Windows' thumbnail cache sometimes holds broken folder thumbnails: fully opaque on a black square, or
             // the folder drawn a few pixels wide in the middle of the canvas. A folder thumbnail always has a

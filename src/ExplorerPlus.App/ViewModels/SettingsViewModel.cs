@@ -75,6 +75,27 @@ public sealed class SettingsViewModel : ObservableObject
     public bool SmoothScrolling { get => S.SmoothScrolling; set => Change(() => S.SmoothScrolling = value); }
     public bool RestoreSession { get => S.RestoreSession; set => Change(() => S.RestoreSession = value); }
 
+    // ---------- Preview ----------
+
+    public bool HoverPreview { get => S.HoverPreview; set => Change(() => S.HoverPreview = value); }
+    public bool HoverSound { get => S.HoverSound; set => Change(() => S.HoverSound = value); }
+
+    public IReadOnlyList<Choice> HoverDelays { get; } = [new("Fast (0.15 s)", "150"), new("Normal (0.3 s)", "300"), new("Relaxed (0.7 s)", "700")];
+
+    public Choice HoverDelay
+    {
+        get => HoverDelays.FirstOrDefault(c => c.Value == S.HoverDelayMs.ToString()) ?? HoverDelays[1];
+        set { if (value is not null) Change(() => S.HoverDelayMs = int.Parse(value.Value)); }
+    }
+
+    public IReadOnlyList<Choice> HoverSizes { get; } = [new("Small", "400"), new("Medium", "600"), new("Large", "850")];
+
+    public Choice HoverSize
+    {
+        get => HoverSizes.FirstOrDefault(c => c.Value == S.HoverSize.ToString()) ?? HoverSizes[1];
+        set { if (value is not null) Change(() => S.HoverSize = int.Parse(value.Value)); }
+    }
+
     public bool KeepRunningInBackground
     {
         get => S.KeepRunningInBackground;

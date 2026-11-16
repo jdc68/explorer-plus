@@ -1,9 +1,7 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
-using System.Text;
 using System.Windows.Media;
-using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using ExplorerPlus.App.Infrastructure;
 using ExplorerPlus.App.Services;
@@ -261,11 +259,11 @@ public sealed class PaneViewModel : ObservableObject
         }
 
         var ext = Path.GetExtension(path);
-        if (ImageExtensions.Contains(ext) && await Task.Run(() => DecodeImage(path, 1600)) is { } picture)
+        if (ImageExtensions.Contains(ext) && await Task.Run(() => PreviewLoader.DecodeImage(path, 1600, 1600)) is { } picture)
         {
             if (version != _version) return;
             HandlerTarget = null;
-            PreviewImage = picture;
+            PreviewImage = picture.Image;
             Kind = PreviewKind.Image;
             return;
         }
@@ -274,12 +272,12 @@ public sealed class PaneViewModel : ObservableObject
         var handler = PreviewHandlers.Find(ext);
         if (TextExtensions.Contains(ext) || (handler is null && item.Entry.Size is >= 0 and < 4 * 1024 * 1024))
         {
-            var text = await Task.Run(() => ReadText(path, requireText: !TextExtensions.Contains(ext)));
+            var text = await Task.Run(() => PreviewLoader.ReadText(path, TextLimit));
             if (version != _version) return;
             if (text is not null)
             {
                 HandlerTarget = null;
-                PreviewText = text;
+                PreviewText = text.Truncated ? text.Text + "\n\n…" : text.Text;
                 Kind = PreviewKind.Text;
                 return;
             }
@@ -301,71 +299,5 @@ public sealed class PaneViewModel : ObservableObject
             PreviewImage = img;
             Kind = PreviewKind.Image;
         }, () => { });
-    }
-
-    private static BitmapSource? DecodeImage(string path, int maxSize)
-    {
-        try
-        {
-            int width, height;
-            ushort orientation = 1;
-            using (var probe = File.OpenRead(path))
-            {
-                var frame = BitmapDecoder.Create(probe, BitmapCreateOptions.DelayCreation, BitmapCacheOption.None).Frames[0];
-                (width, height) = (frame.PixelWidth, frame.PixelHeight);
-                try
-                {
-                    if (frame.Metadata is BitmapMetadata meta && meta.GetQuery("System.Photo.Orientation") is ushort o) orientation = o;
-                }
-                catch (Exception) { }
-            }
-
-            var image = new BitmapImage();
-            image.BeginInit();
-            image.UriSource = new Uri(path);
-            image.CacheOption = BitmapCacheOption.OnLoad;
-            image.CreateOptions = BitmapCreateOptions.IgnoreImageCache;
-            if (width > maxSize || height > maxSize)
-            {
-                if (width >= height) image.DecodePixelWidth = maxSize;
-                else image.DecodePixelHeight = maxSize;
-            }
-            image.EndInit();
-
-            // Phones store photos sideways plus an EXIF orientation; Explorer shows them upright.
-            BitmapSource result = image;
-            var angle = orientation switch { 3 => 180, 6 => 90, 8 => 270, _ => 0 };
-            if (angle != 0) result = new TransformedBitmap(image, new RotateTransform(angle));
-            result.Freeze();
-            return result;
-        }
-        catch (Exception)
-        {
-            return null;
-        }
-    }
-
-    private static string? ReadText(string path, bool requireText)
-    {
-        try
-        {
-            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            var buffer = new byte[Math.Min(TextLimit, Math.Max(0, stream.Length))];
-            var read = stream.ReadAtLeast(buffer, buffer.Length, throwOnEndOfStream: false);
-            var bytes = buffer.AsSpan(0, read);
-
-            var hasBom = bytes.StartsWith(new byte[] { 0xEF, 0xBB, 0xBF }) || bytes.StartsWith(new byte[] { 0xFF, 0xFE }) || bytes.StartsWith(new byte[] { 0xFE, 0xFF });
-            // Binary files have NUL bytes early on (UTF-16 text has them too, but then it has a BOM).
-            if (requireText && !hasBom && bytes[..Math.Min(bytes.Length, 8192)].IndexOf((byte)0) >= 0) return null;
-
-            using var reader = new StreamReader(new MemoryStream(buffer, 0, read), new UTF8Encoding(false), detectEncodingFromByteOrderMarks: true);
-            var text = reader.ReadToEnd();
-            if (stream.Length > TextLimit) text += "\n\n…";
-            return text;
-        }
-        catch (Exception)
-        {
-            return null;
-        }
     }
 }

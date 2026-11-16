@@ -54,6 +54,15 @@ public struct POINT
 }
 
 [StructLayout(LayoutKind.Sequential)]
+public struct MONITORINFO
+{
+    public int cbSize;
+    public RECT rcMonitor;
+    public RECT rcWork;
+    public uint dwFlags;
+}
+
+[StructLayout(LayoutKind.Sequential)]
 public struct PROPERTYKEY
 {
     public Guid fmtid;
