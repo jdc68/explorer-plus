@@ -32,6 +32,8 @@ public partial class MainWindow
     {
         _pressPoint = e.GetPosition(FileList);
         _pressOnItem = FindAncestor<ListViewItem>(e.OriginalSource as DependencyObject) is not null;
+        // after the click has selected the row
+        if (_pressOnItem) Dispatcher.BeginInvoke(DispatcherPriority.Input, PrepareItemsMenu);
     }
 
     private void OnFileListPreviewMouseMove(object sender, MouseEventArgs e)

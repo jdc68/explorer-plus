@@ -39,6 +39,7 @@ public static class Program
             }
         }
 
+        if (instance is not null) AppSettings.StartLoading();
         var app = new App(instance);
         app.InitializeComponent();
         return app.Run();

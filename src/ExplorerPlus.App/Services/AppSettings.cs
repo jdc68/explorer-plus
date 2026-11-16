@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using ExplorerPlus.Core.Shell;
 using ContentViewRules = ExplorerPlus.App.ViewModels.ContentViewRules;
 using ViewRule = ExplorerPlus.App.ViewModels.ViewRule;
@@ -116,7 +117,9 @@ public sealed class AppSettings
     private static readonly JsonSerializerOptions Json = new()
     {
         WriteIndented = true,
-        NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals,
+        NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals,
+        // built at compile time: reflection took about 50 ms of every start
+        TypeInfoResolver = AppSettingsJson.Default,
     };
 
     private const int CurrentFormat = 2;
@@ -133,6 +136,17 @@ public sealed class AppSettings
         if (Format < 2) StartLocation = ShellLocation.Known.Home;
         Format = CurrentFormat;
         Save();
+    }
+
+    private static Task? _loading;
+
+    // runs while WPF loads App.xaml and the theme, which doesn't need the settings
+    public static void StartLoading() => _loading = Task.Run(Load);
+
+    public static void FinishLoading()
+    {
+        if (_loading is null) Load();
+        else _loading.GetAwaiter().GetResult();
     }
 
     public static void Load()
@@ -173,3 +187,6 @@ public sealed class AppSettings
         ShellFilter.Default.HideLibraries = !ShowLibraries;
     }
 }
+
+[JsonSerializable(typeof(AppSettings))]
+internal sealed partial class AppSettingsJson : JsonSerializerContext;

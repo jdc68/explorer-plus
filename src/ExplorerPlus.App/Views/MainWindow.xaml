@@ -180,7 +180,89 @@
             <Setter Property="Padding" Value="4,0" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
             <Setter Property="Text" Value="{Binding EditName, UpdateSourceTrigger=PropertyChanged}" />
-            <Setter Property="Visibility" Value="{Binding IsRenaming, Converter={StaticResource BoolToVis}}" />
+        </Style>
+        <DataTemplate x:Key="RenameBoxTemplate">
+            <TextBox Style="{StaticResource RenameBox}" Margin="-4,0,0,0"
+                     Loaded="OnRenameBoxLoaded" PreviewKeyDown="OnRenameBoxKeyDown" LostKeyboardFocus="OnRenameBoxLostFocus" />
+        </DataTemplate>
+        <DataTemplate x:Key="WrappedRenameBoxTemplate">
+            <TextBox Style="{StaticResource RenameBox}" TextWrapping="Wrap" TextAlignment="Center"
+                     Loaded="OnRenameBoxLoaded" PreviewKeyDown="OnRenameBoxKeyDown" LostKeyboardFocus="OnRenameBoxLostFocus" />
+        </DataTemplate>
+
+        <!-- Rename box and check box are built only while shown; a ContentPresenter wouldn't do, its DataContext is its own Content -->
+        <Style x:Key="LazyHost" TargetType="ContentControl">
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="IsTabStop" Value="False" />
+        </Style>
+        <Style x:Key="RenameHost" TargetType="ContentControl" BasedOn="{StaticResource LazyHost}">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsRenaming}" Value="True">
+                    <Setter Property="Content" Value="{Binding}" />
+                    <Setter Property="ContentTemplate" Value="{StaticResource RenameBoxTemplate}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="WrappedRenameHost" TargetType="ContentControl" BasedOn="{StaticResource LazyHost}">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsRenaming}" Value="True">
+                    <Setter Property="Content" Value="{Binding}" />
+                    <Setter Property="ContentTemplate" Value="{StaticResource WrappedRenameBoxTemplate}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <DataTemplate x:Key="StarMarkTemplate">
+            <TextBlock Style="{StaticResource StarMark}" />
+        </DataTemplate>
+        <DataTemplate x:Key="BigStarMarkTemplate">
+            <TextBlock Style="{StaticResource StarMark}" Margin="0" FontSize="14" />
+        </DataTemplate>
+        <DataTemplate x:Key="QuickAccessMarkTemplate">
+            <TextBlock Style="{StaticResource QuickAccessMark}" />
+        </DataTemplate>
+        <Style x:Key="StarHost" TargetType="ContentControl" BasedOn="{StaticResource LazyHost}">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsStarred}" Value="True">
+                    <Setter Property="Visibility" Value="Visible" />
+                    <Setter Property="Content" Value="{Binding}" />
+                    <Setter Property="ContentTemplate" Value="{StaticResource StarMarkTemplate}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="BigStarHost" TargetType="ContentControl" BasedOn="{StaticResource LazyHost}">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsStarred}" Value="True">
+                    <Setter Property="Visibility" Value="Visible" />
+                    <Setter Property="Content" Value="{Binding}" />
+                    <Setter Property="ContentTemplate" Value="{StaticResource BigStarMarkTemplate}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="QuickAccessHost" TargetType="ContentControl" BasedOn="{StaticResource LazyHost}">
+            <Setter Property="Content" Value="{Binding}" />
+            <Setter Property="ContentTemplate" Value="{StaticResource QuickAccessMarkTemplate}" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding QuickAccessMark}" Value="{x:Null}">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                    <Setter Property="Content" Value="{x:Null}" />
+                    <Setter Property="ContentTemplate" Value="{x:Null}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <DataTemplate x:Key="ItemCheckBoxTemplate">
+            <CheckBox Style="{StaticResource ItemCheckBox}" />
+        </DataTemplate>
+        <Style x:Key="CheckBoxHost" TargetType="ContentControl" BasedOn="{StaticResource LazyHost}">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding DataContext.ShowCheckboxes, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                    <Setter Property="Visibility" Value="Visible" />
+                    <Setter Property="Content" Value="{Binding}" />
+                    <Setter Property="ContentTemplate" Value="{StaticResource ItemCheckBoxTemplate}" />
+                </DataTrigger>
+            </Style.Triggers>
         </Style>
 
         <DataTemplate x:Key="IconTemplate" DataType="{x:Type vm:ItemViewModel}">
@@ -188,30 +270,28 @@
                 <Grid Width="{Binding ImageSize}" Height="{Binding ImageSize}" HorizontalAlignment="Center" Margin="0,2,0,4">
                     <Image Source="{Binding LargeImage}" Stretch="Uniform" StretchDirection="DownOnly"
                            RenderOptions.BitmapScalingMode="HighQuality" VerticalAlignment="Bottom" HorizontalAlignment="Center" />
-                    <CheckBox Style="{StaticResource ItemCheckBox}" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="-2,-2,0,0" />
-                    <TextBlock Style="{StaticResource StarMark}" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0" FontSize="14" />
+                    <ContentControl Style="{StaticResource CheckBoxHost}" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="-2,-2,0,0" />
+                    <ContentControl Style="{StaticResource BigStarHost}" HorizontalAlignment="Right" VerticalAlignment="Top" />
                 </Grid>
                 <Grid>
                     <TextBlock Text="{Binding DisplayName}" TextAlignment="Center" TextWrapping="Wrap" TextTrimming="CharacterEllipsis"
                                MaxHeight="34" LineHeight="16" LineStackingStrategy="BlockLineHeight"
                                Visibility="{Binding IsRenaming, Converter={StaticResource InverseBoolToVis}}" />
-                    <TextBox Style="{StaticResource RenameBox}" TextWrapping="Wrap" TextAlignment="Center"
-                             IsVisibleChanged="OnRenameBoxVisible" PreviewKeyDown="OnRenameBoxKeyDown" LostKeyboardFocus="OnRenameBoxLostFocus" />
+                    <ContentControl Style="{StaticResource WrappedRenameHost}" />
                 </Grid>
             </StackPanel>
         </DataTemplate>
 
         <DataTemplate x:Key="SmallIconTemplate" DataType="{x:Type vm:ItemViewModel}">
             <DockPanel Opacity="{Binding ItemOpacity}" VerticalAlignment="Center" Margin="2,0">
-                <CheckBox DockPanel.Dock="Left" Style="{StaticResource ItemCheckBox}" Margin="0,0,6,0" />
+                <ContentControl DockPanel.Dock="Left" Style="{StaticResource CheckBoxHost}" Margin="0,0,6,0" />
                 <Image DockPanel.Dock="Left" Source="{Binding Icon}" Width="16" Height="16" Margin="0,0,8,0" />
-                <TextBlock DockPanel.Dock="Right" Style="{StaticResource StarMark}" />
-                <TextBlock DockPanel.Dock="Right" Style="{StaticResource QuickAccessMark}" />
+                <ContentControl DockPanel.Dock="Right" Style="{StaticResource StarHost}" />
+                <ContentControl DockPanel.Dock="Right" Style="{StaticResource QuickAccessHost}" />
                 <Grid>
                     <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
                                Visibility="{Binding IsRenaming, Converter={StaticResource InverseBoolToVis}}" />
-                    <TextBox Style="{StaticResource RenameBox}" Margin="-4,0,0,0"
-                             IsVisibleChanged="OnRenameBoxVisible" PreviewKeyDown="OnRenameBoxKeyDown" LostKeyboardFocus="OnRenameBoxLostFocus" />
+                    <ContentControl Style="{StaticResource RenameHost}" />
                 </Grid>
             </DockPanel>
         </DataTemplate>
@@ -253,14 +333,13 @@
             <DockPanel Opacity="{Binding ItemOpacity}" VerticalAlignment="Center" ToolTip="{Binding DriveToolTip}">
                 <Grid DockPanel.Dock="Left" Width="48" Height="48" Margin="2,0,10,0">
                     <Image Source="{Binding LargeImage}" Stretch="Uniform" StretchDirection="DownOnly" RenderOptions.BitmapScalingMode="HighQuality" />
-                    <CheckBox Style="{StaticResource ItemCheckBox}" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="-4,-4,0,0" />
+                    <ContentControl Style="{StaticResource CheckBoxHost}" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="-4,-4,0,0" />
                 </Grid>
                 <StackPanel VerticalAlignment="Center">
                     <Grid>
                         <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis"
                                    Visibility="{Binding IsRenaming, Converter={StaticResource InverseBoolToVis}}" />
-                        <TextBox Style="{StaticResource RenameBox}" Margin="-4,0,0,0"
-                                 IsVisibleChanged="OnRenameBoxVisible" PreviewKeyDown="OnRenameBoxKeyDown" LostKeyboardFocus="OnRenameBoxLostFocus" />
+                        <ContentControl Style="{StaticResource RenameHost}" />
                     </Grid>
                     <StackPanel Visibility="{Binding HasSpaceInfo, Converter={StaticResource InverseBoolToVis}}">
                         <TextBlock Text="{Binding TypeName}" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
@@ -287,14 +366,13 @@
                 </Grid.ColumnDefinitions>
                 <Grid Width="48" Height="48" Margin="0,0,12,0">
                     <Image Source="{Binding LargeImage}" Stretch="Uniform" StretchDirection="DownOnly" RenderOptions.BitmapScalingMode="HighQuality" />
-                    <CheckBox Style="{StaticResource ItemCheckBox}" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="-4,-4,0,0" />
+                    <ContentControl Style="{StaticResource CheckBoxHost}" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="-4,-4,0,0" />
                 </Grid>
                 <StackPanel Grid.Column="1" VerticalAlignment="Center">
                     <Grid>
                         <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" FontSize="14"
                                    Visibility="{Binding IsRenaming, Converter={StaticResource InverseBoolToVis}}" />
-                        <TextBox Style="{StaticResource RenameBox}" Margin="-4,0,0,0"
-                                 IsVisibleChanged="OnRenameBoxVisible" PreviewKeyDown="OnRenameBoxKeyDown" LostKeyboardFocus="OnRenameBoxLostFocus" />
+                        <ContentControl Style="{StaticResource RenameHost}" />
                     </Grid>
                     <TextBlock Text="{Binding TypeName}" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
                 </StackPanel>
@@ -315,18 +393,14 @@
                 <GridViewColumn.CellTemplate>
                     <DataTemplate DataType="{x:Type vm:ItemViewModel}">
                         <DockPanel Opacity="{Binding ItemOpacity}">
-                            <CheckBox DockPanel.Dock="Left" Style="{StaticResource ItemCheckBox}" Margin="0,0,8,0" />
+                            <ContentControl DockPanel.Dock="Left" Style="{StaticResource CheckBoxHost}" Margin="0,0,8,0" />
                             <Image DockPanel.Dock="Left" Source="{Binding Icon}" Width="16" Height="16" Margin="0,0,8,0" />
-                            <TextBlock DockPanel.Dock="Right" Style="{StaticResource StarMark}" />
-                            <TextBlock DockPanel.Dock="Right" Style="{StaticResource QuickAccessMark}" />
+                            <ContentControl DockPanel.Dock="Right" Style="{StaticResource StarHost}" />
+                            <ContentControl DockPanel.Dock="Right" Style="{StaticResource QuickAccessHost}" />
                             <Grid>
                                 <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
                                            Visibility="{Binding IsRenaming, Converter={StaticResource InverseBoolToVis}}" />
-                                <TextBox Text="{Binding EditName, UpdateSourceTrigger=PropertyChanged}" MinHeight="24" Padding="4,0"
-                                         VerticalContentAlignment="Center" Margin="-4,0,0,0"
-                                         Visibility="{Binding IsRenaming, Converter={StaticResource BoolToVis}}"
-                                         IsVisibleChanged="OnRenameBoxVisible" PreviewKeyDown="OnRenameBoxKeyDown"
-                                         LostKeyboardFocus="OnRenameBoxLostFocus" />
+                                <ContentControl Style="{StaticResource RenameHost}" />
                             </Grid>
                         </DockPanel>
                     </DataTemplate>
@@ -649,11 +723,11 @@
                     <Border x:Name="LeftPaneHost" Grid.Column="0" BorderThickness="0" BorderBrush="Transparent"
                             PreviewMouseDown="OnPanePreviewMouseDown" PreviewGotKeyboardFocus="OnPaneGotFocus">
                         <Grid>
-                            <ListView x:Name="LeftList" AutomationProperties.Name="Items" SelectionMode="Extended"
+                            <views:FileListView x:Name="LeftList" AutomationProperties.Name="Items" SelectionMode="Extended"
                                       Style="{StaticResource FileListStyle}"
                                       BorderThickness="0" Background="Transparent" ItemContainerStyle="{StaticResource FileRowStyle}"
                                       VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
-                                      VirtualizingPanel.IsContainerVirtualizable="True" VirtualizingPanel.CacheLength="1,2"
+                                      VirtualizingPanel.IsContainerVirtualizable="True" VirtualizingPanel.CacheLength="0"
                                       VirtualizingPanel.CacheLengthUnit="Page" VirtualizingPanel.IsVirtualizingWhenGrouping="True" ScrollViewer.IsDeferredScrollingEnabled="False"
                                       IsTextSearchEnabled="True" TextSearch.TextPath="DisplayName"
                                       SelectionChanged="OnSelectionChanged" ContextMenuOpening="OnFileListContextMenuOpening"
@@ -686,11 +760,11 @@
                     <Border x:Name="RightPaneHost" Grid.Column="2" BorderThickness="0" BorderBrush="Transparent"
                             PreviewMouseDown="OnPanePreviewMouseDown" PreviewGotKeyboardFocus="OnPaneGotFocus">
                         <Grid>
-                            <ListView x:Name="RightList" AutomationProperties.Name="Items, right pane" SelectionMode="Extended"
+                            <views:FileListView x:Name="RightList" AutomationProperties.Name="Items, right pane" SelectionMode="Extended"
                                       Style="{StaticResource FileListStyle}"
                                       BorderThickness="0" Background="Transparent" ItemContainerStyle="{StaticResource FileRowStyle}"
                                       VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
-                                      VirtualizingPanel.IsContainerVirtualizable="True" VirtualizingPanel.CacheLength="1,2"
+                                      VirtualizingPanel.IsContainerVirtualizable="True" VirtualizingPanel.CacheLength="0"
                                       VirtualizingPanel.CacheLengthUnit="Page" VirtualizingPanel.IsVirtualizingWhenGrouping="True" ScrollViewer.IsDeferredScrollingEnabled="False"
                                       IsTextSearchEnabled="True" TextSearch.TextPath="DisplayName"
                                       SelectionChanged="OnSelectionChanged" ContextMenuOpening="OnFileListContextMenuOpening"

@@ -32,7 +32,12 @@ public static class FolderViewStore
     private static string FilePath =>
         Path.Combine(AppPaths.DataFolder, "views.json");
 
-    private static readonly JsonSerializerOptions Json = new() { WriteIndented = false, Converters = { new JsonStringEnumConverter() } };
+    private static readonly JsonSerializerOptions Json = new()
+    {
+        WriteIndented = false,
+        Converters = { new JsonStringEnumConverter() },
+        TypeInfoResolver = FolderViewJson.Default,
+    };
 
     private static Dictionary<string, FolderViewState> States
     {
@@ -121,3 +126,6 @@ public static class FolderViewStore
         catch { /* best effort */ }
     }
 }
+
+[JsonSerializable(typeof(Dictionary<string, FolderViewState>))]
+internal sealed partial class FolderViewJson : JsonSerializerContext;

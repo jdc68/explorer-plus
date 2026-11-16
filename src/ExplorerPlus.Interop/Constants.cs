@@ -163,6 +163,7 @@ public static class TPM
     public const uint RIGHTBUTTON = 0x2;
     public const uint RETURNCMD = 0x100;
     public const uint NONOTIFY = 0x80;
+    public const uint NOANIMATION = 0x4000;
 }
 
 public static class MF
@@ -182,6 +183,7 @@ public static class WM
     public const int MEASUREITEM = 0x002C;
     public const int MENUCHAR = 0x0120;
     public const int MENUSELECT = 0x011F;
+    public const int ENTERIDLE = 0x0121;
     public const int DEVICECHANGE = 0x0219;
     public const int COPYDATA = 0x004A;
     public const int USER = 0x0400;

@@ -1,3 +1,4 @@
+using System.IO;
 using System.Text.Json.Serialization;
 using ExplorerPlus.Core.Shell;
 
@@ -97,6 +98,8 @@ public static class ContentViewRules
         foreach (var rule in rules)
             foreach (var ext in rule.Extensions)
                 kindOf.TryAdd("." + ext, rule.Content);
+        // by span: a folder of 100,000 files would otherwise make as many extension strings
+        var lookup = kindOf.GetAlternateLookup<ReadOnlySpan<char>>();
 
         int files = 0, folders = 0;
         var counts = new Dictionary<FolderContent, int>();
@@ -104,7 +107,7 @@ public static class ContentViewRules
         {
             if (e.IsFolder) { folders++; continue; }
             files++;
-            if (kindOf.TryGetValue(e.Extension, out var kind)) counts[kind] = counts.GetValueOrDefault(kind) + 1;
+            if (lookup.TryGetValue(Path.GetExtension(e.Name.AsSpan()), out var kind)) counts[kind] = counts.GetValueOrDefault(kind) + 1;
         }
         // A couple of stray files in a folder of folders say little about it.
         if (files == 0 || files < 3 && folders > files) return FolderContent.General;

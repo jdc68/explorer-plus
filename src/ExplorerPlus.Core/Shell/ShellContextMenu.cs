@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using ExplorerPlus.Core.Threading;
 using ExplorerPlus.Interop;
 
 namespace ExplorerPlus.Core.Shell;
@@ -33,6 +34,8 @@ public sealed class ShellContextMenu : IDisposable
     private IContextMenu2? _menu2;
     private IContextMenu3? _menu3;
     private readonly string? _directory;
+    private IntPtr _ready;
+    private bool _readyExtended;
 
     /// <summary>The menu currently being tracked, for message forwarding.</summary>
     public static ShellContextMenu? Current { get; private set; }
@@ -107,18 +110,52 @@ public sealed class ShellContextMenu : IDisposable
         finally { Marshal.Release(ptr); }
     }
 
+    private static int _warmedUp;
+
+    // the first menu in a process loads every shell extension, about a second
+    public static void WarmUp(params string[] paths)
+    {
+        if (Interlocked.Exchange(ref _warmedUp, 1) == 1) return;
+        _ = StaWorkerPool.RunDedicated(() =>
+        {
+            foreach (var path in paths)
+                if (ShellNative.TryParse(path) is { } pidl)
+                    using (var menu = ForItems([pidl], IntPtr.Zero, null)) menu?.Prepare(false, null);
+            return true;
+        }, "MenuWarmUp");
+    }
+
+    // builds the shell part ahead of Show, while the mouse button is still down
+    public void Prepare(bool extended, Func<string?, string, bool>? hide)
+    {
+        if (_menu is null || _ready != IntPtr.Zero) return;
+        _ready = Build(extended, hide);
+        _readyExtended = extended;
+    }
+
+    private IntPtr Build(bool extended, Func<string?, string, bool>? hide)
+    {
+        var hmenu = User32.CreatePopupMenu();
+        var flags = CMF.NORMAL | CMF.CANRENAME | (extended ? CMF.EXTENDEDVERBS : 0);
+        _menu!.QueryContextMenu(hmenu, 0, FirstShellId, LastShellId, flags);
+        if (hide is not null) RemoveItems(hmenu, hide);
+        return hmenu;
+    }
+
     public MenuResult Show(IntPtr hwnd, int screenX, int screenY, IReadOnlyList<CustomMenuItem> customTop,
         IReadOnlyCollection<string> interceptVerbs, bool extended, Func<string?, string, bool>? hide = null)
     {
         if (_menu is null) return MenuResult.Nothing;
-        var hmenu = User32.CreatePopupMenu();
+        var hmenu = _ready;
+        _ready = IntPtr.Zero;
+        if (hmenu != IntPtr.Zero && _readyExtended != extended)
+        {
+            User32.DestroyMenu(hmenu);
+            hmenu = IntPtr.Zero;
+        }
+        if (hmenu == IntPtr.Zero) hmenu = Build(extended, hide);
         try
         {
-            var flags = CMF.NORMAL | CMF.CANRENAME | (extended ? CMF.EXTENDEDVERBS : 0);
-            _menu.QueryContextMenu(hmenu, 0, FirstShellId, LastShellId, flags);
-
-            if (hide is not null) RemoveItems(hmenu, hide);
-
             if (customTop.Count > 0)
             {
                 var pos = 0u;
@@ -129,7 +166,8 @@ public sealed class ShellContextMenu : IDisposable
 
             Current = this;
             int cmd;
-            try { cmd = User32.TrackPopupMenuEx(hmenu, TPM.RETURNCMD | TPM.RIGHTBUTTON, screenX, screenY, hwnd, IntPtr.Zero); }
+            // no fade-in, it adds about 180 ms before the menu is readable
+            try { cmd = User32.TrackPopupMenuEx(hmenu, TPM.RETURNCMD | TPM.RIGHTBUTTON | TPM.NOANIMATION, screenX, screenY, hwnd, IntPtr.Zero); }
             finally { Current = null; }
 
             if (cmd == 0) return MenuResult.Nothing;
@@ -284,6 +322,8 @@ public sealed class ShellContextMenu : IDisposable
 
     public void Dispose()
     {
+        if (_ready != IntPtr.Zero) User32.DestroyMenu(_ready);
+        _ready = IntPtr.Zero;
         ShellNative.Release(_menu);
         _menu = null;
         _menu2 = null;

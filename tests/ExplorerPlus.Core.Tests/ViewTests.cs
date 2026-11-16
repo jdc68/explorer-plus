@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -198,6 +199,98 @@ public class ViewTests
         }
         finally { window.Close(); }
     });
+
+    [Fact]
+    public void Filtering_keeps_the_sort_order_and_follows_a_new_sort() => RunSta(() =>
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "ExplorerPlusFilter-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            // above 3,000 items, so the view is computed off the UI thread
+            for (var i = 0; i < 3200; i++) File.WriteAllBytes(Path.Combine(dir, $"x{i}.txt"), []);
+            foreach (var name in new[] { "b10.txt", "b2.txt", "a1.txt", "b1.txt" }) File.WriteAllBytes(Path.Combine(dir, name), []);
+            using var tab = new TabViewModel();
+            Wait(tab.NavigateAsync(Wait(ShellLocation.ResolveAsync(dir))!));
+            Assert.Equal(3204, tab.Items.Count);
+
+            string[] Shown() => tab.Items.Select(i => i.Name).ToArray();
+            tab.FilterText = "b";
+            PumpUntil(() => tab.Items.Count == 3);
+            Assert.Equal(["b1.txt", "b2.txt", "b10.txt"], Shown());
+
+            tab.SortBy(ColumnCatalog.Name, ascending: false);
+            PumpUntil(() => tab.Items.FirstOrDefault()?.Name == "b10.txt");
+            Assert.Equal(["b10.txt", "b2.txt", "b1.txt"], Shown());
+
+            tab.FilterText = "";
+            PumpUntil(() => tab.Items.Count == 3204);
+            tab.FilterText = "a";
+            PumpUntil(() => tab.Items.Count == 1);
+            Assert.Equal(["a1.txt"], Shown());
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    });
+
+    [Fact]
+    public void File_list_exposes_only_its_realized_rows_to_ui_automation() => RunSta(() =>
+    {
+        var grid = new GridView();
+        grid.Columns.Add(new GridViewColumn { Header = "Name", Width = 200, DisplayMemberBinding = new System.Windows.Data.Binding() });
+        var rowStyle = new Style(typeof(ListViewItem));
+        rowStyle.Setters.Add(new Setter(System.Windows.Automation.AutomationProperties.AutomationIdProperty, new System.Windows.Data.Binding()));
+        var items = Enumerable.Range(0, 10000).Select(i => $"item {i}").ToList();
+        var list = new FileListView { View = grid, ItemsSource = items, ItemContainerStyle = rowStyle };
+        VirtualizingPanel.SetIsVirtualizing(list, true);
+        VirtualizingPanel.SetVirtualizationMode(list, VirtualizationMode.Recycling);
+        VirtualizingPanel.SetCacheLength(list, new VirtualizationCacheLength(0));
+        var window = new Window
+        {
+            Content = list, Width = 400, Height = 400, Left = -20000, Top = -20000,
+            ShowActivated = false, ShowInTaskbar = false, WindowStyle = WindowStyle.None,
+        };
+        window.Show();
+        try
+        {
+            Pump();
+            var peer = System.Windows.Automation.Peers.UIElementAutomationPeer.CreatePeerForElement(list);
+            var children = peer.GetChildren();
+            Assert.IsType<System.Windows.Automation.Peers.GridViewHeaderRowPresenterAutomationPeer>(children[0]);
+            var rows = children.OfType<System.Windows.Automation.Peers.GridViewItemAutomationPeer>().ToList();
+            Assert.InRange(rows.Count, 5, 40);
+            Assert.Equal("item 0", rows[0].GetAutomationId());
+            Assert.NotEmpty(rows[0].GetChildren()); // the cells
+
+            list.ScrollIntoView(items[^1]);
+            PumpFor(TimeSpan.FromMilliseconds(100));
+            rows = peer.GetChildren().OfType<System.Windows.Automation.Peers.GridViewItemAutomationPeer>().ToList();
+            Assert.InRange(rows.Count, 5, 40);
+            Assert.Equal("item 9999", rows[^1].GetAutomationId());
+        }
+        finally { window.Close(); }
+    });
+
+    private static T Wait<T>(Task<T> task)
+    {
+        Wait((Task)task);
+        return task.Result;
+    }
+
+    private static void Wait(Task task)
+    {
+        PumpUntil(() => task.IsCompleted);
+        task.GetAwaiter().GetResult();
+    }
+
+    private static void PumpUntil(Func<bool> done)
+    {
+        var until = DateTime.UtcNow.AddSeconds(20);
+        while (!done())
+        {
+            if (DateTime.UtcNow > until) throw new TimeoutException();
+            PumpFor(TimeSpan.FromMilliseconds(20));
+        }
+    }
 
     private static void PumpFor(TimeSpan time)
     {

@@ -62,7 +62,7 @@ public partial class App : Application
         catch { /* dark native menus are cosmetic */ }
 
         Shell32.FileIconInit(true);
-        AppSettings.Load();
+        AppSettings.FinishLoading();
         ApplyTheme();
         FolderLoader.HomeOptions = QuickAccess.HomeOptions;
         TagView.Paths = tag => Current.Dispatcher.Invoke(() => Tags.PathsWith(tag));
@@ -116,6 +116,8 @@ public partial class App : Application
             _ => ThemeMode.System,
         };
         UseTextFontInPopups();
+        // menus open at once, as the native item menu does
+        Current.Resources[SystemParameters.MenuPopupAnimationKey] = System.Windows.Controls.Primitives.PopupAnimation.None;
     }
 
     // Menus and tooltips of icon buttons would inherit the icon font and show boxes. Built here, not in App.xaml:

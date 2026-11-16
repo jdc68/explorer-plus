@@ -27,6 +27,9 @@ public sealed class TabViewModel : ObservableObject, IDisposable
     private CancellationTokenSource? _loadCts;
     private IDisposable? _watch;
     private int _viewVersion;
+    private ItemViewModel[]? _sorted;
+    private SortedKey? _sortedKey;
+    private int _allVersion;
     private bool _isLoading;
     private bool _dirtyDuringLoad;
     private string? _error;
@@ -201,7 +204,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
             {
                 // Where the folder was before its first letter filtered it, for coming back from typed results
                 if (wasEmpty && _location is not null) CaptureTypedFrom();
-                _ = ApplyViewAsync(keepSelection: true);
+                _ = ApplyViewAsync(keepSelection: true, filterOnly: true);
             }
             ScheduleTypedSearch();
         }
@@ -603,12 +606,13 @@ public sealed class TabViewModel : ObservableObject, IDisposable
     private void SetAll(List<ItemViewModel> items)
     {
         _all = items;
+        _allVersion++;
         _byName.Clear();
         foreach (var i in items) _byName.TryAdd(i.Name, i);
     }
 
     /// <summary>Filters, groups and sorts the full list (off the UI thread for big folders) and publishes it.</summary>
-    public async Task ApplyViewAsync(bool keepSelection, IReadOnlyList<ItemViewModel>? select = null)
+    public async Task ApplyViewAsync(bool keepSelection, IReadOnlyList<ItemViewModel>? select = null, bool filterOnly = false)
     {
         var version = ++_viewVersion;
         var snapshot = _all.ToArray();
@@ -618,13 +622,15 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         var showProtected = settings.ShowProtectedOsFiles;
         var groupBy = _groupBy;
         var comparer = new ItemComparer(_sortColumn, _sortAscending, _sortProperty, groupBy is not null);
+        var key = new SortedKey(_allVersion, _sortColumn, _sortAscending, _sortProperty, groupBy, showHidden, showProtected);
+        var sorted = filterOnly && key == _sortedKey ? _sorted : null;
         var toSelect = select ?? (keepSelection ? _selectedItems.ToList() : null);
 
         // Sorting or grouping by a shell property needs that property for every item, not just the visible ones.
         var needed = new List<string>();
         if (_sortColumn == SortColumn.Property && _sortProperty is not null) needed.Add(_sortProperty);
         if (groupBy is not null && !ColumnCatalog.BuiltIn.Contains(groupBy)) needed.Add(groupBy);
-        if (needed.Count > 0)
+        if (needed.Count > 0 && sorted is null)
         {
             var missing = snapshot.Where(i => needed.Any(k => !i.HasProperty(k))).ToList();
             if (missing.Count > 0)
@@ -634,28 +640,37 @@ public sealed class TabViewModel : ObservableObject, IDisposable
             }
         }
 
+        // Filtering a sorted list keeps its order, so the whole list is sorted once and each keystroke only filters it
         ItemViewModel[] Compute()
         {
-            var list = new List<ItemViewModel>(snapshot.Length);
-            foreach (var i in snapshot)
+            if (sorted is null)
             {
-                if (!PassesFilter(i, filter, showHidden, showProtected)) continue;
-                list.Add(i);
+                var list = new List<ItemViewModel>(snapshot.Length);
+                foreach (var i in snapshot)
+                    if (PassesFilter(i, "", showHidden, showProtected)) list.Add(i);
+                if (groupBy is not null) Grouping.Assign(list, groupBy);
+                sorted = list.ToArray();
+                Array.Sort(sorted, comparer);
             }
-            if (groupBy is not null) Grouping.Assign(list, groupBy);
-            var arr = list.ToArray();
-            Array.Sort(arr, comparer);
-            return arr;
+            if (filter.Length == 0) return sorted;
+            var shown = new List<ItemViewModel>();
+            foreach (var i in sorted)
+                if (PassesFilter(i, filter, showHidden, showProtected)) shown.Add(i);
+            return shown.ToArray();
         }
 
         var result = snapshot.Length < 3000 ? Compute() : await Task.Run(Compute);
         if (version != _viewVersion) return;
+        _sorted = sorted;
+        _sortedKey = key;
 
         Items.ReplaceAll(result);
         OnPropertyChanged(nameof(ShowEmptyMessage));
         UpdateStatus();
         if (toSelect is { Count: > 0 }) SelectionRequested?.Invoke(toSelect);
     }
+
+    private sealed record SortedKey(int AllVersion, SortColumn Column, bool Ascending, string? Property, string? GroupBy, bool ShowHidden, bool ShowProtected);
 
     private static bool PassesFilter(ItemViewModel i, string filter, bool showHidden, bool showProtected)
     {
@@ -986,11 +1001,13 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         {
             Items.Remove(vm);
             vm.Update(entry);
+            _allVersion++;
         }
         else
         {
             vm = NewItem(entry);
             _all.Add(vm);
+            _allVersion++;
             _byName[entry.Name] = vm;
         }
 
@@ -1035,6 +1052,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         var name = Path.GetFileName(path!.TrimEnd('\\'));
         if (!_byName.Remove(name, out var vm)) return;
         _all.Remove(vm);
+        _allVersion++;
         Items.Remove(vm);
         OnPropertyChanged(nameof(ShowEmptyMessage));
         UpdateStatus();
@@ -1054,6 +1072,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
             var left = _all.Except(gone).GroupBy(i => i.Entry.Section).Where(g => g.Count() == 1).SelectMany(g => g);
             gone.AddRange(left.ToList());
         }
+        _allVersion++;
         foreach (var vm in gone)
         {
             _all.Remove(vm);

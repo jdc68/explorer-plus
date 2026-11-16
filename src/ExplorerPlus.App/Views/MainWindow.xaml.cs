@@ -10,6 +10,7 @@ using System.Windows.Shell;
 using System.Windows.Threading;
 using ExplorerPlus.App.Services;
 using ExplorerPlus.App.ViewModels;
+using ExplorerPlus.Core.Integration;
 using ExplorerPlus.Core.Shell;
 using ExplorerPlus.Interop;
 
@@ -48,6 +49,9 @@ public partial class MainWindow : Window
 
         SourceInitialized += OnSourceInitialized;
         Loaded += OnLoaded;
+        if (PerfProbe.IsOn) Loaded += (_, _) => PerfProbe.OnWindowLoaded(this);
+        ContentRendered += (_, _) => _ = Task.Delay(2000).ContinueWith(_ =>
+            ShellContextMenu.WarmUp(Environment.ProcessPath ?? "", Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory)));
         Loaded += (_, _) =>
         {
             TransferQueue.Changed += UpdateTransfers;
@@ -920,9 +924,10 @@ public partial class MainWindow : Window
         FileList.ScrollIntoView(item);
     }
 
-    private void OnRenameBoxVisible(object sender, DependencyPropertyChangedEventArgs e)
+    // the box only exists while renaming
+    private void OnRenameBoxLoaded(object sender, RoutedEventArgs e)
     {
-        if (e.NewValue is not true || sender is not TextBox box || box.DataContext is not ItemViewModel item) return;
+        if (sender is not TextBox box || box.DataContext is not ItemViewModel item) return;
         Dispatcher.BeginInvoke(DispatcherPriority.Input, () =>
         {
             box.Focus();
@@ -1053,7 +1058,7 @@ public partial class MainWindow : Window
         try { pidls = items.Select(i => i.Entry.GetPidl()).ToList(); }
         catch { return; }
 
-        using var menu = ShellContextMenu.ForItems(pidls, _hwnd, location?.FileSystemPath);
+        using var menu = TakeReadyMenu(items) ?? ShellContextMenu.ForItems(pidls, _hwnd, location?.FileSystemPath);
         if (menu is null)
         {
             // Home and search results can span folders; the shell only builds menus for one folder at a time.
@@ -1086,6 +1091,42 @@ public partial class MainWindow : Window
         var intercept = browsable.Count == items.Count ? FolderVerbs : FileVerbs;
         var result = menu.Show(_hwnd, x, y, custom, intercept, extended: Keyboard.Modifiers.HasFlag(ModifierKeys.Shift), hide: MenuFilter);
         _ = HandleItemsMenuResult(result, items);
+    }
+
+    private (List<ItemViewModel> Items, ShellContextMenu Menu, long Time)? _readyMenu;
+
+    // the shell takes about 200 ms to fill an item menu, so that starts when the button goes down
+    private void PrepareItemsMenu()
+    {
+        DropReadyMenu();
+        // a quick click has opened the menu already
+        if (Mouse.RightButton != MouseButtonState.Pressed || Tab is null || _renaming is not null) return;
+        var items = Selection;
+        if (items.Count == 0) return;
+        List<Pidl> pidls;
+        try { pidls = items.Select(i => i.Entry.GetPidl()).ToList(); }
+        catch { return; }
+        var menu = ShellContextMenu.ForItems(pidls, _hwnd, Tab.Location?.FileSystemPath);
+        if (menu is null) return;
+        menu.Prepare(Keyboard.Modifiers.HasFlag(ModifierKeys.Shift), MenuFilter);
+        _readyMenu = (items, menu, Environment.TickCount64);
+    }
+
+    private ShellContextMenu? TakeReadyMenu(IReadOnlyList<ItemViewModel> items)
+    {
+        if (_readyMenu is not { } ready || Environment.TickCount64 - ready.Time > 3000 || !ready.Items.SequenceEqual(items))
+        {
+            DropReadyMenu();
+            return null;
+        }
+        _readyMenu = null;
+        return ready.Menu;
+    }
+
+    private void DropReadyMenu()
+    {
+        _readyMenu?.Menu.Dispose();
+        _readyMenu = null;
     }
 
     private async Task HandleItemsMenuResult(MenuResult result, IReadOnlyList<ItemViewModel> items)
@@ -1294,14 +1335,16 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Bloat filter for native menus; Shift+right-click shows everything.</summary>
-    // File Explorer's own Quick access pins never show, even with Shift: ours replace them
+    // Explorer's Quick access pins and our own "Open in Explorer+" never show, even with Shift
     private static Func<string?, string, bool> MenuFilter =>
         Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)
-            ? (verb, _) => IsExplorerPinVerb(verb)
-            : (verb, text) => IsExplorerPinVerb(verb) || AppSettings.Current.IsMenuItemHidden(verb, text);
+            ? (verb, _) => IsAlwaysHiddenVerb(verb)
+            : (verb, text) => IsAlwaysHiddenVerb(verb) || AppSettings.Current.IsMenuItemHidden(verb, text);
 
-    private static bool IsExplorerPinVerb(string? verb) =>
-        verb is not null && (verb.Equals("pintohome", StringComparison.OrdinalIgnoreCase) || verb.Equals("unpinfromhome", StringComparison.OrdinalIgnoreCase));
+    private static bool IsAlwaysHiddenVerb(string? verb) =>
+        verb is not null && (verb.Equals("pintohome", StringComparison.OrdinalIgnoreCase) ||
+                             verb.Equals("unpinfromhome", StringComparison.OrdinalIgnoreCase) ||
+                             verb.Equals(DefaultFileManager.Verb, StringComparison.OrdinalIgnoreCase));
 
     private void InvokeVerbOn(IReadOnlyList<ItemViewModel> items, string verb)
     {
