@@ -764,7 +764,7 @@ public partial class MainWindow : Window
             if (ReferenceEquals(pane, _active) && !Address.IsEditing && !FilterBox.IsKeyboardFocusWithin)
                 Dispatcher.BeginInvoke(DispatcherPriority.Background, () =>
                 {
-                    if (ReferenceEquals(pane, _active) && list.ItemContainerGenerator.ContainerFromItem(first) is ListViewItem c) c.Focus();
+                    if (ReferenceEquals(pane, _active)) list.FocusItem(first);
                 });
         }
     }

@@ -233,6 +233,36 @@ public class ViewTests
     });
 
     [Fact]
+    public void Selecting_a_new_item_leaves_its_rename_box_focused() => RunSta(() =>
+    {
+        var template = (DataTemplate)System.Windows.Markup.XamlReader.Parse(
+            "<DataTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'><Grid><TextBlock Text='{Binding}' /></Grid></DataTemplate>");
+        var items = Enumerable.Range(0, 50).Select(i => $"item {i}").ToList();
+        var list = new FileListView { ItemsSource = items, ItemTemplate = template };
+        var window = new Window { Content = list, Width = 400, Height = 400, Left = -20000, Top = -20000, ShowInTaskbar = false, WindowStyle = WindowStyle.None };
+        window.Show();
+        try
+        {
+            window.Activate();
+            Pump();
+            var item = items[3];
+
+            // what New does: the tab asks for the selection, then for the rename
+            list.SelectedItem = item;
+            list.ScrollIntoView(item);
+            Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.Background, () => list.FocusItem(item));
+            var row = (ListViewItem)list.ItemContainerGenerator.ContainerFromItem(item);
+            var box = new TextBox { Text = item };
+            box.Loaded += (_, _) => Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.Input, () => box.Focus());
+            ((Panel)FindChild<TextBlock>(row)!.Parent).Children.Add(box);
+            PumpFor(TimeSpan.FromMilliseconds(100));
+
+            Assert.True(box.IsKeyboardFocused);
+        }
+        finally { window.Close(); }
+    });
+
+    [Fact]
     public void File_list_exposes_only_its_realized_rows_to_ui_automation() => RunSta(() =>
     {
         var grid = new GridView();

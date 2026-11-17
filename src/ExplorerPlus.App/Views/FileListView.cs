@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Automation.Peers;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 
@@ -26,6 +27,13 @@ public sealed class FileListView : ListView
         var peer = new RealizedItemsPeer(this);
         if (View is GridView grid) peer.SetViewPeer(new GridViewAutomationPeer(grid, this));
         return peer;
+    }
+
+    // a selection made just before a rename must not pull the focus out of the rename box
+    public void FocusItem(object item)
+    {
+        if (Keyboard.FocusedElement is TextBox box && IsAncestorOf(box)) return;
+        if (ItemContainerGenerator.ContainerFromItem(item) is ListViewItem c) c.Focus();
     }
 
     // after a scroll the realized rows change without any change to the items

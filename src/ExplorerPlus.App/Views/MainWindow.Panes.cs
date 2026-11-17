@@ -20,9 +20,9 @@ public partial class MainWindow
     // active pane (FileList, Tab); events a tab raises by itself (selection after a load, rename after New) go to the
     // pane that shows it.
 
-    private sealed class FilePane(ListView list, Rectangle marquee, Border host, bool isRight)
+    private sealed class FilePane(FileListView list, Rectangle marquee, Border host, bool isRight)
     {
-        public ListView List { get; } = list;
+        public FileListView List { get; } = list;
         public Rectangle Marquee { get; } = marquee;
         public Border Host { get; } = host;
         public bool IsRight { get; } = isRight;
@@ -57,7 +57,7 @@ public partial class MainWindow
         _active = _left;
     }
 
-    private FilePane CreatePane(ListView list, Rectangle marquee, Border host, bool right)
+    private FilePane CreatePane(FileListView list, Rectangle marquee, Border host, bool right)
     {
         // x:Shared="False": every pane gets its own GridView (a view can only belong to one list).
         var pane = new FilePane(list, marquee, host, right) { DetailsView = (GridView)FindResource("DetailsGridView") };
