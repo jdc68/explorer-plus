@@ -8,7 +8,7 @@ A fast, keyboard-friendly file manager for Windows 11, built for work and everyd
 - **Then, in this order:** I18 big, old and empty finders, I19 flat view, I20 disk usage treemap, I21 drop shelf.
 - **Backlog, only when the user asks:** I14, Save and Open dialogs ([#9](https://github.com/jdc68/explorer-plus/issues/9)).
 - **Postponed:** M7, remote locations and plugins.
-- **Done:** M1 to M6, I1 to I13, I15 (closed for now), I16, I22, I23 (0.1.33), I24. What was built, the findings and the checks made are in [HISTORY.md](HISTORY.md). What is still open from them is in section 6, under "Open checks" and "Loose ends".
+- **Done:** M1 to M6, I1 to I13, I15 (closed for now), I16 (0.1.35), I22, I23 (0.1.33), I24. What was built, the findings and the checks made are in [HISTORY.md](HISTORY.md). What is still open from them is in section 6, under "Open checks" and "Loose ends".
 
 How this file is kept:
 - This section is the only place that gives the order. Update it when a step starts or finishes, or when the user changes the order.
