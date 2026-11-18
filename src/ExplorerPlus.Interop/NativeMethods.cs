@@ -285,6 +285,10 @@ public static class User32
     public const long WS_EX_NOACTIVATE = 0x08000000;
     public const long CS_DROPSHADOW = 0x20000;
     public const int WM_NCHITTEST = 0x84;
+    public const int WM_NCACTIVATE = 0x86;
+
+    [DllImport("user32.dll", EntryPoint = "DefWindowProcW")]
+    public static extern IntPtr DefWindowProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam);
     public const int WM_MOUSEACTIVATE = 0x21;
     public const int WM_DESTROY = 0x2;
     public const int HTTRANSPARENT = -1;
@@ -326,4 +330,6 @@ public static class Dwmapi
     public const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
     public const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
     public const int DWMWCP_ROUND = 2;
+    public const int DWMWA_SYSTEMBACKDROP_TYPE = 38;
+    public const int DWMSBT_TRANSIENTWINDOW = 3;
 }

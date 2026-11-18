@@ -29,7 +29,6 @@ public sealed class ShelfItem(string path) : ObservableObject
 public partial class ShelfWindow : Window
 {
     private const double Gap = 8;
-    private const double ShadowMargin = 12;
 
     private static ShelfWindow? _instance;
 
@@ -45,6 +44,7 @@ public partial class ShelfWindow : Window
     private IntPtr _dropData;
     private IDropTargetHelper? _helper;
     private bool _helperEntered;
+    private bool _hooked;
 
     private ShelfWindow()
     {
@@ -54,6 +54,30 @@ public partial class ShelfWindow : Window
         foreach (var path in AppSettings.Current.Shelf) AddItem(path);
         UpdateCount();
         _ = DropMissingAsync(TimeSpan.Zero);
+        SourceInitialized += (_, _) => ApplyBackdrop();
+        Loaded += (_, _) => ApplyBackdrop();
+    }
+
+    private void ApplyBackdrop()
+    {
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (HwndSource.FromHwnd(hwnd) is { CompositionTarget: { } target }) target.BackgroundColor = Colors.Transparent;
+        var dark = FindResource("TextFillColorPrimary") is Color text && text.R > 128 ? 1 : 0;
+        var backdrop = Dwmapi.DWMSBT_TRANSIENTWINDOW;
+        var corner = Dwmapi.DWMWCP_ROUND;
+        Dwmapi.DwmSetWindowAttribute(hwnd, Dwmapi.DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, sizeof(int));
+        Dwmapi.DwmSetWindowAttribute(hwnd, Dwmapi.DWMWA_SYSTEMBACKDROP_TYPE, ref backdrop, sizeof(int));
+        Dwmapi.DwmSetWindowAttribute(hwnd, Dwmapi.DWMWA_WINDOW_CORNER_PREFERENCE, ref corner, sizeof(int));
+        if (!_hooked && HwndSource.FromHwnd(hwnd) is { } source) { source.AddHook(KeepActiveLook); _hooked = true; }
+        User32.DefWindowProc(hwnd, User32.WM_NCACTIVATE, 1, IntPtr.Zero);
+    }
+
+    // the system drops the acrylic on inactive windows, and the shelf is hardly ever active
+    private static IntPtr KeepActiveLook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (msg != User32.WM_NCACTIVATE) return IntPtr.Zero;
+        handled = true;
+        return User32.DefWindowProc(hwnd, msg, 1, lParam);
     }
 
     private static ShelfWindow Instance => _instance ??= new ShelfWindow();
@@ -105,10 +129,10 @@ public partial class ShelfWindow : Window
             User32.GetMonitorInfoW(monitor, ref info);
             var scale = User32.GetDpiForMonitor(monitor, User32.MDT_EFFECTIVE_DPI, out var dpi, out _) == 0 ? dpi / 96.0 : 1;
             var work = info.rcWork;
-            var (w, h, gap, m) = ((int)(Width * scale), (int)(Height * scale), (int)(Gap * scale), (int)(ShadowMargin * scale));
-            // the card, not the shadow margin, goes beside the window's right edge, or just inside it when there's no room (maximized)
-            var x = r.Right + gap + w - 2 * m <= work.Right ? r.Right + gap - m : Math.Max(work.Left - m, r.Right - w + m - 3 * gap);
-            var y = Math.Clamp(r.Top + (r.Bottom - r.Top - h) / 2, work.Top - m, Math.Max(work.Top - m, work.Bottom - h + m));
+            var (w, h, gap) = ((int)(Width * scale), (int)(Height * scale), (int)(Gap * scale));
+            // beside the window's right edge, or just inside it when there's no room (maximized)
+            var x = r.Right + gap + w <= work.Right ? r.Right + gap : Math.Max(work.Left, r.Right - w - 3 * gap);
+            var y = Math.Clamp(r.Top + (r.Bottom - r.Top - h) / 2, work.Top, Math.Max(work.Top, work.Bottom - h));
             User32.SetWindowPos(hwnd, User32.HWND_TOPMOST, x, y, 0, 0, User32.SWP_NOSIZE | User32.SWP_NOACTIVATE);
         }
         Show();
@@ -264,8 +288,8 @@ public partial class ShelfWindow : Window
             else _helper.DragOver(ref pt, (uint)e.Effects);
         }
         catch { }
-        Card.SetResourceReference(Border.BorderBrushProperty, e.Effects == DragDropEffects.None
-            ? "SurfaceStrokeColorDefaultBrush" : "AccentFillColorDefaultBrush");
+        if (e.Effects == DragDropEffects.None) Card.BorderBrush = Brushes.Transparent;
+        else Card.SetResourceReference(Border.BorderBrushProperty, "AccentFillColorDefaultBrush");
     }
 
     private void OnDragLeave(object sender, DragEventArgs e)
@@ -290,7 +314,7 @@ public partial class ShelfWindow : Window
     private void EndDrop()
     {
         _helperEntered = false;
-        Card.SetResourceReference(Border.BorderBrushProperty, "SurfaceStrokeColorDefaultBrush");
+        Card.BorderBrush = Brushes.Transparent;
         if (_dropData == IntPtr.Zero) return;
         Marshal.Release(_dropData);
         _dropData = IntPtr.Zero;
