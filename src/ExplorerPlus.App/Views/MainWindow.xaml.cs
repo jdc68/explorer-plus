@@ -686,6 +686,7 @@ public partial class MainWindow : Window
         menu.Items.Add(MenuEntry("Find duplicate files", null, FindDuplicates, "\uE8C8"));
         menu.Items.Add(MenuEntry("Compare and sync folders…", null, CompareFolders, "\uE8AB"));
         menu.Items.Add(MenuEntry("Recent changes", null, () => ShowRecentChanges(here: false), SidebarViewModel.RecentGlyph));
+        menu.Items.Add(MenuEntry("Analyze disk usage", null, () => AnalyzeDiskUsage(), Glyphs.DiskUsage));
         menu.Items.Add(new Separator());
         menu.Items.Add(MenuEntry("Map network drive…", null, ViewModel.MapNetworkDrive,"\uE8CE"));
         menu.Items.Add(MenuEntry("Disconnect network drive…", null, ViewModel.DisconnectNetworkDrive, "\uE8CD"));
@@ -1044,6 +1045,7 @@ public partial class MainWindow : Window
     private const int CmdNewTag = ShellContextMenu.FirstCustomId + 15;
     private const int CmdRemoveFrequent = ShellContextMenu.FirstCustomId + 16;
     private const int CmdWhatIsUsing = ShellContextMenu.FirstCustomId + 17;
+    private const int CmdDiskUsage = ShellContextMenu.FirstCustomId + 18;
     private const int CmdCompressBase = ShellContextMenu.FirstCustomId + 20; // + (int)ArchiveFormat
     private const int CmdTagBase = ShellContextMenu.FirstCustomId + 200;
     private const int CmdChoiceLimit = 50;
@@ -1214,6 +1216,9 @@ public partial class MainWindow : Window
             case MenuResultKind.Custom when result.CustomId == CmdWhatIsUsing:
                 ShowWhatIsUsing(items);
                 break;
+            case MenuResultKind.Custom when result.CustomId == CmdDiskUsage:
+                AnalyzeDiskUsage(items[0].Entry.Path);
+                break;
             case MenuResultKind.Custom when result.CustomId == CmdOpenInOther:
                 await OpenInOtherPaneAsync(items[0]);
                 break;
@@ -1265,6 +1270,8 @@ public partial class MainWindow : Window
             if (paths.Count > 1) custom.Add(new CustomMenuItem { Text = $"Rename {paths.Count} items…\tF2", Id = CmdBatchRename });
             custom.Add(new CustomMenuItem { Text = "What is using this?", Id = CmdWhatIsUsing });
         }
+        if (items is [{ IsFolder: true, Entry.Path: { } folder }] && Path.IsPathFullyQualified(folder))
+            custom.Add(new CustomMenuItem { Text = "Analyze disk usage", Id = CmdDiskUsage });
         if (TaggablePaths(items) is { Count: > 0 } taggable && taggable.Count == items.Count)
         {
             var tags = Tags.Names.Take(CmdChoiceLimit).ToList();

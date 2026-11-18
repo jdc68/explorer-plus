@@ -4,11 +4,11 @@ A fast, keyboard-friendly file manager for Windows 11, built for work and everyd
 
 ## Status (18 Nov 2026)
 
-- **Now: I20** disk usage treemap. Its "Decide with the user" lines are still open, so they are settled with the user before it is built.
-- **Then:** I21 drop shelf.
+- **Now: I21** drop shelf. Its "Decide with the user" lines are still open, so they are settled with the user before it is built.
+- **Then:** nothing else is planned; the backlog below waits for the user.
 - **Backlog, only when the user asks:** I18 big, old and empty finders (postponed by the user, 18 Nov 2026), I14, Save and Open dialogs ([#9](https://github.com/jdc68/explorer-plus/issues/9)).
 - **Postponed:** M7, remote locations and plugins.
-- **Done:** M1 to M6, I1 to I13, I15 (closed for now), I16 (0.1.35), I17 (0.1.36), I22, I23 (0.1.33), I24, I25 (0.1.37, [#29](https://github.com/jdc68/explorer-plus/issues/29)), I19 (0.1.38). What was built, the findings and the checks made are in [HISTORY.md](HISTORY.md). What is still open from them is in section 6, under "Open checks" and "Loose ends".
+- **Done:** M1 to M6, I1 to I13, I15 (closed for now), I16 (0.1.35), I17 (0.1.36), I22, I23 (0.1.33), I24, I25 (0.1.37, [#29](https://github.com/jdc68/explorer-plus/issues/29)), I19 (0.1.38), I20 (0.1.39). What was built, the findings and the checks made are in [HISTORY.md](HISTORY.md). What is still open from them is in section 6, under "Open checks" and "Loose ends".
 
 How this file is kept:
 - This section is the only place that gives the order. Update it when a step starts or finishes, or when the user changes the order.
@@ -146,11 +146,6 @@ From the 14 Nov 2026 brainstorm, in the order chosen with the user (not GitHub i
 - Reuses the results tab, the sort and group by size or date, and the "N items · X" status bar from the duplicate finder. Deleting from the list goes to the Recycle Bin and removes the rows, as in the duplicate finder; there is no one-click "delete all" at first.
 - Decide with the user: whether the folders list counts a folder with only empty folders below it as empty (probably yes), and whether system, hidden and protected locations are skipped (yes, unless the user asks).
 
-**I20: disk usage view (treemap).**
-- "Analyze this drive" (a drive tile's menu on This PC, any folder's menu, the palette): a treemap of the folder, each rectangle sized by its total, drawn from the index's folder totals (instant) and from the walk where the index can't answer (network, FAT, removable). Click a rectangle to go into it, a breadcrumb to go back up, a list beside it ordered by size, and the right-click menu of the item under the mouse (open, show in folder, delete to the Recycle Bin).
-- Colour by file kind (pictures, videos, music, documents, code, archives, other) with a legend that also filters. The treemap itself is a custom WPF control that draws the squarified layout in a `DrawingVisual` and hit-tests by rectangle, so thousands of cells stay smooth; it limits itself to the largest N children per level and groups the rest as "other".
-- Needs a request for the children of a folder with their totals (`FolderSizesRequest` answers by path today, so the app can list a folder and ask for its subfolders in one go; files come from the listing). Decide with the user: a tab or a separate window, and whether a sunburst is wanted as a second chart.
-
 **I21: drop shelf.**
 - A small floating tray, always on top, that holds files while you browse. Drag files onto it (from any Explorer+ window or other apps), go to another folder or app, and drag them out again, or use "Move here" and "Copy here" in the shelf's menu to put the whole set in the current folder. It saves the dual pane dance for one-off moves between far-apart folders.
 - The shelf keeps paths only (never copies), shows names and icons with a count, and survives a restart of Explorer+ (the paths in settings, items that no longer exist drop out). Items drag out as a normal file drag (`SHCreateDataObject` with the PIDLs), with the shell's drop effects. A shortcut and the palette ("Add to shelf", "Show shelf") add the selection without dragging.
@@ -202,6 +197,7 @@ Gathered from the finished steps; the step in brackets has the details in HISTOR
   - The app right after the service starts, before sizes are read [I4].
   - Recent changes with real results: Update the service from Settings, then each span, Include AppData, a folder's own recent changes, the 10,000 cut on 7 days, deletes from the list, and a tab restored from the session [I17].
 - **Flat view:** the index route after updating the service from Settings (a drive root, a folder with more than 10,000 files, "(the first 10,000 of N files)"), the type bar with your own view-rule extensions, deletes and renames in the list, and the toggle in the right pane [I19].
+- **Disk usage:** "Analyze disk usage" in a drive tile's and a folder's item menu and in the palette, a drive root (free space in the status bar), the walk on a drive the index doesn't read (network, USB), the legend's filter, the right-click menu (Open, Show in folder, Delete and the tree shrinking after it), the sunburst's hover and centre click, and the light theme [I20].
 - **Settings:** the Settings window's buttons [I2], and switching Light and Dark while a menu is in use [I1].
 - **Toolbar:** the Command palette and Settings buttons in a split window [I23].
 - **Files in use:** a real app with unsaved work (Word, Notepad) asked to close by Force delete, a folder open in a terminal, a failed move or copy from the queue, a failed rename, Delete from the native item menu (now Explorer+'s own delete, with undo), and the PDF or Office preview pane holding the file [I16].
@@ -216,9 +212,11 @@ Known gaps left on purpose. Each one could become a step if the user wants it.
 - **Folder sizes:** index sizes don't update while a folder is open, because only the walk's cache raises change events [I4].
 - **Recent changes:** no Home row (the sketch had one), and no live updates while the tab is open (F5 runs it again) [I17].
 - **Releases:**
+  - `build.ps1`'s first publish after a plain `dotnet build` still fails now and then with NETSDK1047, despite the restore for the runtime (twice on 18 Nov 2026); running it again with the same `-Version` works.
   - Release notes are the commit subjects. Writing them by hand is still undecided.
   - Submitting the winget manifests to winget-pkgs is still done by hand [I7].
 - **Toolbar and status toggles** (Recent changes' spans, flat view and its kinds) only act on a click: UI Automation's Toggle changes their check mark without running them, so a screen reader can't use them yet [I19].
+- **Disk usage charts** are drawn by hand and have no UI Automation peer; the list beside them is the accessible way in [I20].
 - **Views:** List view takes about 50 ms a frame while scrolling, with smooth scrolling on or off [I10].
 - **Performance, left for later in I15:**
   - The first menu after a minute idle takes about 700 ms, because the packaged verbs' hosts start again.
@@ -245,7 +243,7 @@ src/ExplorerPlus.Core          no WPF
                                  HomeFeed, SearchLocation, IndexSearch, RecentChanges, FlatView, TagView, DuplicateFinder, ThisPc
                                actions: FileOperations, FileOpLog, ShellContextMenu, ShellClipboard, ShellDragDrop,
                                  ShellLauncher, LocationActions, Associations, LinkResolver, ShellNewTemplates,
-                                 Archives, BatchRename, FolderCompare, WindowsQuickAccess, FileLocks
+                                 Archives, BatchRename, FolderCompare, WindowsQuickAccess, FileLocks, DiskUsage
                                data: PropertyReader, ThumbnailExtractor, PreviewHandlers, FolderSizeService,
                                  DriveService, GitStatus, FolderHistory, SizeFormat, NaturalComparer
   Navigation/                  PathParser, ExplorerCommandLine, FuzzyMatch
@@ -255,7 +253,7 @@ src/ExplorerPlus.App           WPF, .NET 9 Fluent theme; Program (single instanc
   Views/                       MainWindow (+ .Tabs, .Panes, .Commands, .Columns, .DragDrop, .Perf, .InUse), FileListView,
                                VirtualizingWrapPanel, SmoothScroller, AddressBar, BreadcrumbPanel, PreviewHost,
                                HoverPreview + HoverPopup, QuickLookWindow, BatchRenameWindow, CompareWindow,
-                               InUseWindow, SettingsWindow, PromptWindow; Themes/FileList.xaml
+                               InUseWindow, DiskUsageWindow + DiskCharts, SettingsWindow, PromptWindow; Themes/FileList.xaml
   ViewModels/                  MainViewModel, TabViewModel, PaneViewModel, SidebarViewModel, SettingsViewModel,
                                ItemViewModel, Columns, Grouping, ItemComparer, ContentViewRules, ViewMode, PaletteEntry,
                                InUseReport

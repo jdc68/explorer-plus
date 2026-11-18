@@ -17,21 +17,6 @@
     </WindowChrome.WindowChrome>
 
     <Window.Resources>
-        <Style x:Key="RecentToggle" TargetType="ToggleButton" BasedOn="{StaticResource StatusToggle}">
-            <Setter Property="FontFamily" Value="{Binding FontFamily, RelativeSource={RelativeSource AncestorType=Window}}" />
-            <Setter Property="FontSize" Value="{Binding FontSize, RelativeSource={RelativeSource AncestorType=Window}}" />
-            <Setter Property="Width" Value="NaN" />
-            <Setter Property="Height" Value="28" />
-            <Setter Property="Margin" Value="1,0" />
-            <Setter Property="VerticalAlignment" Value="Center" />
-            <Setter Property="ContentTemplate">
-                <Setter.Value>
-                    <DataTemplate>
-                        <TextBlock Text="{Binding}" Margin="10,0" />
-                    </DataTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
         <!-- Tab strip item -->
         <Style x:Key="TabItemStyle" TargetType="ListBoxItem">
             <Setter Property="Padding" Value="10,0,4,0" />

@@ -44,6 +44,9 @@ public sealed class AppSettings
 
     public bool OpenFoldersInNewTab { get; set; } = true;
 
+    // Treemap or Sunburst, the last chart picked in the disk usage window
+    public string DiskUsageChart { get; set; } = "Treemap";
+
     /// <summary>Reopen last time's tabs. Off by default: closing the last window closes its tabs, like File Explorer.</summary>
     public bool RestoreSession { get; set; }
 

@@ -258,6 +258,18 @@ public partial class MainWindow
         catch (Exception ex) { ViewModel.ShowNotice(ex.Message); }
     }
 
+    // a treemap and sunburst of the folder or drive, in its own window
+    private void AnalyzeDiskUsage(string? folder = null)
+    {
+        folder ??= FolderForTools();
+        if (folder is null)
+        {
+            ViewModel.ShowNotice("Open or select a folder or drive to see what takes up its space.");
+            return;
+        }
+        new DiskUsageWindow(folder, this).Show();
+    }
+
     private async void CompareFolders()
     {
         static string? FolderOf(TabViewModel? t) => t?.Location is { IsFileSystemFolder: true, FileSystemPath: { } p } ? p : null;
@@ -283,6 +295,7 @@ public partial class MainWindow
     {
         public const string Tag = SidebarViewModel.TagGlyph;
         public const string Duplicates = "\uE8C8";
+        public const string DiskUsage = "\uEB05";
         public const string Compare = "\uE8AB";
         public const string Folder = "";
         public const string Tab = "";
@@ -340,6 +353,8 @@ public partial class MainWindow
         if (FolderForTools() is { } dupesIn)
             list.Add(new PaletteEntry("Find duplicate files", FindDuplicates, null, dupesIn, Glyphs.Duplicates));
         Add("Compare and sync folders…", CompareFolders, null, Glyphs.Compare);
+        if (FolderForTools() is { } usageOf)
+            list.Add(new PaletteEntry("Analyze disk usage", () => AnalyzeDiskUsage(), null, usageOf, Glyphs.DiskUsage));
         Add("Recent changes…", () => ShowRecentChanges(here: false), null, SidebarViewModel.RecentGlyph);
         if (inFolder) list.Add(new PaletteEntry("Recent changes in this folder", () => ShowRecentChanges(here: true), null, tab!.Location!.FileSystemPath, SidebarViewModel.RecentGlyph));
         if (paths.Count == selection.Count && paths.Count > 0)

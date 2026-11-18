@@ -575,12 +575,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     }
 
     // the user already said yes once, so a retry doesn't ask again
-    public async Task DeletePathsAsync(IReadOnlyList<string> paths, bool permanent)
+    public async Task DeletePathsAsync(IReadOnlyList<string> paths, bool permanent, bool confirm = false)
     {
         var existing = await Task.Run(() => paths.Where(p => File.Exists(p) || Directory.Exists(p)).ToList());
         if (existing.Count == 0) return;
         var pidls = await StaWorkerPool.General.Run(() => existing.Select(ShellNative.TryParse).OfType<Pidl>().ToArray());
-        if (pidls.Length > 0) await DeleteAsync(pidls, existing, permanent, confirm: false);
+        if (pidls.Length > 0) await DeleteAsync(pidls, existing, permanent, confirm);
     }
 
     private async Task DeleteAsync(IReadOnlyList<Pidl> pidls, IReadOnlyList<string> paths, bool permanent, bool confirm)
