@@ -26,6 +26,12 @@ public sealed record RecentRequest(string? Scope, long Since, int Limit, bool In
 /// <summary>Every file below <paramref name="Scope"/> in path order, optionally only some extensions (no dot); answered with a <see cref="SearchResponse"/>.</summary>
 public sealed record FilesRequest(string Scope, List<string>? Extensions, int Limit, bool IncludeHidden, bool IncludeProtected) : IndexRequest;
 
+/// <summary>
+/// The largest files, files not touched since <paramref name="Before"/> (a FILETIME) of at least
+/// <paramref name="MinSize"/> bytes, or empty folders; answered with a <see cref="SearchResponse"/>.
+/// </summary>
+public sealed record CleanupRequest(string? Scope, CleanupKind Kind, long Before, long MinSize, int Limit, bool IncludeSystem) : IndexRequest;
+
 // Size -1 and Modified 0 mean unknown (sizes still being read)
 public sealed record SearchHit(string Path, uint Attributes, long Size = -1, long Modified = 0, long Created = 0)
 {
@@ -45,6 +51,8 @@ public sealed record StatusResponse(string Version, List<VolumeStatus> Volumes, 
     public bool Speaks => Protocol >= IndexProtocol.RequestVersion;
 
     public bool HasFiles => Protocol >= IndexProtocol.FilesVersion;
+
+    public bool HasCleanup => Protocol >= IndexProtocol.CleanupVersion;
 }
 
 /// <summary>
@@ -54,11 +62,12 @@ public sealed record StatusResponse(string Version, List<VolumeStatus> Volumes, 
 public static class IndexProtocol
 {
     public const string PipeName = "ExplorerPlus.Index";
-    public const int ProtocolVersion = 4;
+    public const int ProtocolVersion = 5;
 
     // requests a version-3 service also takes are still sent as 3, so it keeps serving them until it is updated
     public const int RequestVersion = 3;
     public const int FilesVersion = 4;
+    public const int CleanupVersion = 5;
     public const int MaxExtensions = 1000;
 
     // status requests keep the first version's number, so an older service still says which version it is
@@ -69,7 +78,19 @@ public static class IndexProtocol
 
     public static string Version => typeof(IndexProtocol).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
 
-    private const byte KindSearch = 1, KindStatus = 2, KindFolderSizes = 3, KindRecent = 4, KindFiles = 5;
+    private const byte KindSearch = 1, KindStatus = 2, KindFolderSizes = 3, KindRecent = 4, KindFiles = 5, KindCleanup = 6;
+
+    public static byte[] EncodeCleanup(CleanupRequest request) => Encode(w =>
+    {
+        w.Write(CleanupVersion);
+        w.Write(KindCleanup);
+        w.Write(request.Scope ?? "");
+        w.Write((byte)request.Kind);
+        w.Write(request.Before);
+        w.Write(request.MinSize);
+        w.Write(request.Limit);
+        w.Write(request.IncludeSystem);
+    });
 
     public static byte[] EncodeSearch(SearchRequest request) => Encode(w =>
     {
@@ -127,8 +148,16 @@ public static class IndexProtocol
         var version = r.ReadInt32();
         var kind = r.ReadByte();
         if (kind == KindStatus && version >= StatusVersion) return new StatusRequest();
-        if (version < RequestVersion || version > ProtocolVersion || kind == KindFiles && version < FilesVersion)
+        if (version < RequestVersion || version > ProtocolVersion || kind == KindFiles && version < FilesVersion ||
+            kind == KindCleanup && version < CleanupVersion)
             throw new InvalidDataException("Unsupported protocol version.");
+        if (kind == KindCleanup)
+        {
+            var scopePath = r.ReadString();
+            if (scopePath.Length > 32767) throw new InvalidDataException("Request too long.");
+            return new CleanupRequest(scopePath.Length == 0 ? null : scopePath, (CleanupKind)r.ReadByte(), r.ReadInt64(), r.ReadInt64(),
+                r.ReadInt32(), r.ReadBoolean());
+        }
         if (kind == KindFiles)
         {
             var scopePath = r.ReadString();

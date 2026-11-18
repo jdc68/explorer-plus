@@ -116,6 +116,17 @@ public sealed class IndexHost : IDisposable
             (index, scope, limit, canList) => index.Files(options, scope ?? index.RootRecord, extensions, limit, canList, ct));
     }
 
+    /// <summary>The largest files, old files or empty folders. Call it impersonating the client, like <see cref="Search"/>.</summary>
+    public SearchResponse Cleanup(CleanupRequest request, CancellationToken ct = default)
+    {
+        if (!Enum.IsDefined(request.Kind)) return new SearchResponse(SearchStatus.BadRequest, 0, [], false);
+        var all = request.IncludeSystem;
+        var options = new IndexSearchOptions(IncludeHidden: all, IncludeProtected: all, IncludeAppData: all, IncludeSystemFolders: all);
+        return Run(request.Scope, request.Limit, $"clean up ({request.Kind})",
+            (index, scope, limit, canList) => index.Cleanup(request.Kind, request.Before, request.MinSize, options, scope, limit, canList, ct),
+            needsTimes: true);
+    }
+
     // runs a query on every volume, or inside scope, with the client's access checks; the best keys come first
     private SearchResponse Run(string? scopePath, int requestedLimit, string what,
         Func<VolumeIndex, int?, int, Func<int, string, bool>, (List<IndexHit> Hits, int Total)> query, bool needsTimes = false)
@@ -164,8 +175,8 @@ public sealed class IndexHost : IDisposable
         }
         if (sw.ElapsedMilliseconds > 1000)
             Log?.Invoke($"Slow {what} ({sw.ElapsedMilliseconds:N0} ms, {total:N0} matches, {opened:N0} folders checked)");
-        hits.Sort((a, b) => a.Key.CompareTo(b.Key));
-        if (hits.Count > limit) hits.RemoveRange(limit, hits.Count - limit);
+        // stable, so hits with equal keys keep each volume's own order
+        hits = [.. hits.OrderBy(h => h.Key).Take(limit)];
         return new SearchResponse(SearchStatus.Ok, total, hits.Select(h => new SearchHit(h.Path, h.Attributes, h.Size, h.Modified, h.Created)).ToList(), scanning);
     }
 

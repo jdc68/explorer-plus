@@ -681,6 +681,34 @@
                     <ToggleButton Style="{StaticResource RecentToggle}" Content="Documents and code" Tag="Documents" Click="OnFlatKindClick"
                                   IsChecked="{Binding SelectedTab.FlatKind, Mode=OneWay, Converter={StaticResource NameEquals}, ConverterParameter=Documents}" />
                 </StackPanel>
+                <StackPanel Orientation="Horizontal" Visibility="{Binding SelectedTab.IsCleanup, Converter={StaticResource BoolToVis}, FallbackValue=Collapsed}">
+                    <Rectangle Width="1" Margin="6,6" Fill="{DynamicResource DividerStrokeColorDefaultBrush}" />
+                    <ToggleButton Style="{StaticResource RecentToggle}" Content="Largest files" Tag="Largest" Click="OnCleanupKindClick"
+                                  IsChecked="{Binding SelectedTab.Cleanup.Kind, Mode=OneWay, Converter={StaticResource NameEquals}, ConverterParameter=Largest}" />
+                    <ToggleButton Style="{StaticResource RecentToggle}" Content="Old files" Tag="Old" Click="OnCleanupKindClick"
+                                  IsChecked="{Binding SelectedTab.Cleanup.Kind, Mode=OneWay, Converter={StaticResource NameEquals}, ConverterParameter=Old}" />
+                    <ToggleButton Style="{StaticResource RecentToggle}" Content="Empty folders" Tag="Empty" Click="OnCleanupKindClick"
+                                  IsChecked="{Binding SelectedTab.Cleanup.Kind, Mode=OneWay, Converter={StaticResource NameEquals}, ConverterParameter=Empty}" />
+                    <StackPanel Orientation="Horizontal" Visibility="{Binding SelectedTab.IsOldCleanup, Converter={StaticResource BoolToVis}, FallbackValue=Collapsed}">
+                        <Rectangle Width="1" Margin="6,6" Fill="{DynamicResource DividerStrokeColorDefaultBrush}" />
+                        <ToggleButton Style="{StaticResource RecentToggle}" Content="1 year" Tag="1" Click="OnCleanupYearsClick" ToolTip="Not modified or created in the last year"
+                                      IsChecked="{Binding SelectedTab.Cleanup.Years, Mode=OneWay, Converter={StaticResource NameEquals}, ConverterParameter=1}" />
+                        <ToggleButton Style="{StaticResource RecentToggle}" Content="2 years" Tag="2" Click="OnCleanupYearsClick" ToolTip="Not modified or created in the last 2 years"
+                                      IsChecked="{Binding SelectedTab.Cleanup.Years, Mode=OneWay, Converter={StaticResource NameEquals}, ConverterParameter=2}" />
+                        <ToggleButton Style="{StaticResource RecentToggle}" Content="5 years" Tag="5" Click="OnCleanupYearsClick" ToolTip="Not modified or created in the last 5 years"
+                                      IsChecked="{Binding SelectedTab.Cleanup.Years, Mode=OneWay, Converter={StaticResource NameEquals}, ConverterParameter=5}" />
+                        <Rectangle Width="1" Margin="6,6" Fill="{DynamicResource DividerStrokeColorDefaultBrush}" />
+                        <ToggleButton Style="{StaticResource RecentToggle}" Content="Any size" Tag="0" Click="OnCleanupSizeClick"
+                                      IsChecked="{Binding SelectedTab.Cleanup.MinMegabytes, Mode=OneWay, Converter={StaticResource NameEquals}, ConverterParameter=0}" />
+                        <ToggleButton Style="{StaticResource RecentToggle}" Content="10 MB+" Tag="10" Click="OnCleanupSizeClick"
+                                      IsChecked="{Binding SelectedTab.Cleanup.MinMegabytes, Mode=OneWay, Converter={StaticResource NameEquals}, ConverterParameter=10}" />
+                        <ToggleButton Style="{StaticResource RecentToggle}" Content="100 MB+" Tag="100" Click="OnCleanupSizeClick"
+                                      IsChecked="{Binding SelectedTab.Cleanup.MinMegabytes, Mode=OneWay, Converter={StaticResource NameEquals}, ConverterParameter=100}" />
+                    </StackPanel>
+                    <ToggleButton Style="{StaticResource RecentToggle}" Content="Include system files" Margin="8,0,0,0" Click="OnCleanupSystemClick"
+                                  ToolTip="Windows, Program Files, ProgramData, AppData and hidden or protected items are left out unless you ask"
+                                  IsChecked="{Binding SelectedTab.Cleanup.IncludeSystem, Mode=OneWay, FallbackValue=False}" />
+                </StackPanel>
                 <Button x:Name="MoreButton" Style="{StaticResource IconButton}"
  Content="&#xE712;" Click="OnMoreMenuClick" ToolTip="See more" AutomationProperties.Name="More options" />
             </WrapPanel>

@@ -380,7 +380,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public IReadOnlyList<string> SessionTabs => Tabs.Where(t => t.Location is not null).Select(t => Persisted(t.Location!)).ToList();
 
     // what reopens a location later: instant searches as themselves, other searches as their folder
-    private static string Persisted(ShellLocation l) => l.IsIndexSearch || l.IsRecentChanges ? l.ParsingName : (l.SearchScope ?? l).EditText;
+    private static string Persisted(ShellLocation l) => l.IsIndexSearch || l.IsRecentChanges || l.IsCleanup ? l.ParsingName : (l.SearchScope ?? l).EditText;
 
     public Workspace CaptureWorkspace(string name)
     {

@@ -5,9 +5,9 @@ A fast, keyboard-friendly file manager for Windows 11, built for work and everyd
 ## Status (18 Nov 2026)
 
 - **Now:** nothing is planned; the backlog below waits for the user.
-- **Backlog, only when the user asks:** I18 big, old and empty finders (postponed by the user, 18 Nov 2026), I14, Save and Open dialogs ([#9](https://github.com/jdc68/explorer-plus/issues/9)).
+- **Backlog, only when the user asks:** I14, Save and Open dialogs ([#9](https://github.com/jdc68/explorer-plus/issues/9)).
 - **Postponed:** M7, remote locations and plugins.
-- **Done:** M1 to M6, I1 to I13, I15 (closed for now), I16 (0.1.35), I17 (0.1.36), I22, I23 (0.1.33), I24, I25 (0.1.37, [#29](https://github.com/jdc68/explorer-plus/issues/29)), I19 (0.1.38), I20 (0.1.39, fixed in 0.1.40), I21 (0.1.41). What was built, the findings and the checks made are in [HISTORY.md](HISTORY.md). What is still open from them is in section 6, under "Open checks" and "Loose ends".
+- **Done:** M1 to M6, I1 to I13, I15 (closed for now), I16 (0.1.35), I17 (0.1.36), I22, I23 (0.1.33), I24, I25 (0.1.37, [#29](https://github.com/jdc68/explorer-plus/issues/29)), I19 (0.1.38), I20 (0.1.39, fixed in 0.1.40), I21 (0.1.41), I18 (0.1.44). What was built, the findings and the checks made are in [HISTORY.md](HISTORY.md). What is still open from them is in section 6, under "Open checks" and "Loose ends".
 
 How this file is kept:
 - This section is the only place that gives the order. Update it when a step starts or finishes, or when the user changes the order.
@@ -140,11 +140,6 @@ Hidden menu entries stay reachable with Shift+right-click, which shows the full,
 
 From the 14 Nov 2026 brainstorm, in the order chosen with the user (not GitHub issues). What hurts every day comes first, then the features that reuse the index service, then the ones with their own UI. I15, the performance budget, came first in that list. Speed is the product's main promise, and these features can slow it down, so run `installer/perf.ps1` after any of them that touches the file list, loading or startup. Each spec is only a sketch.
 
-**I18: big, old and empty finders (needs the index service).**
-- A "Clean up" command (More, the palette, This PC's drive tiles) with three lists over a drive or folder, each opening as a results tab: the largest files (top 1,000 by size), files not modified in N years (and bigger than M MB), and empty folders. All three are queries over the index (size and modified time are there; a folder is empty when it has no children, which needs a child count in the index, a small addition to `VolumeIndex`).
-- Reuses the results tab, the sort and group by size or date, and the "N items · X" status bar from the duplicate finder. Deleting from the list goes to the Recycle Bin and removes the rows, as in the duplicate finder; there is no one-click "delete all" at first.
-- Decide with the user: whether the folders list counts a folder with only empty folders below it as empty (probably yes), and whether system, hidden and protected locations are skipped (yes, unless the user asks).
-
 ### Backlog and postponed
 
 **I14: Save and Open dialogs (backlog; not in active development).**
@@ -191,6 +186,7 @@ Gathered from the finished steps; the step in brackets has the details in HISTOR
   - The app right after the service starts, before sizes are read [I4].
   - Recent changes with real results: Update the service from Settings, then each span, Include AppData, a folder's own recent changes, the 10,000 cut on 7 days, deletes from the list, and a tab restored from the session [I17].
 - **Flat view:** the index route after updating the service from Settings (a drive root, a folder with more than 10,000 files, "(the first 10,000 of N files)"), the type bar with your own view-rule extensions, deletes and renames in the list, and the toggle in the right pane [I19].
+- **Clean up:** the old files' other ages and sizes (and that they're remembered), the 10,000 cut, deleting rows (Recycle Bin, rows go away), a restored tab, and the entries in More, the palette and a drive tile's menu [I18].
 - **Shelf:** drops from other apps (a browser's download bar, an archive, a mail attachment), dragging out to other apps and the desktop, "Move here" and "Copy here", Ctrl+Shift+S and the item menu, the shelf after a restart, its place beside a maximized window and on a second monitor, and the light theme [I21].
 - **Disk usage:** "Analyze disk usage" in a drive tile's and a folder's item menu and in the palette, a drive root (free space in the status bar), the walk on a drive the index doesn't read (network, USB), the legend's filter, the right-click menu (Open, Show in folder, Delete and the tree shrinking after it), the sunburst's hover and centre click, and the light theme [I20].
 - **Settings:** the Settings window's buttons [I2], and switching Light and Dark while a menu is in use [I1].
@@ -210,8 +206,9 @@ Known gaps left on purpose. Each one could become a step if the user wants it.
   - `build.ps1`'s first publish after a plain `dotnet build` still fails now and then with NETSDK1047, despite the restore for the runtime (twice on 18 Nov 2026); running it again with the same `-Version` works.
   - Release notes are the commit subjects. Writing them by hand is still undecided.
   - Submitting the winget manifests to winget-pkgs is still done by hand [I7].
-- **Toolbar and status toggles** (Recent changes' spans, flat view and its kinds) only act on a click: UI Automation's Toggle changes their check mark without running them, so a screen reader can't use them yet [I19].
+- **Toolbar and status toggles** (Recent changes' spans, flat view and its kinds, Clean up's lists) only act on a click: UI Automation's Toggle changes their check mark without running them, so a screen reader can't use them yet [I19].
 - **Tab loads under a starved thread pool** ended with an empty list and a stale "Loading…" instead of finishing late (seen while 0.1.39's disk usage window hogged the pool); the cause in the load path wasn't found [I20].
+- **Clean up:** no one-click "delete all" (as planned), and old files go by the newer of the modified and created times, since the index has no last-access time [I18].
 - **Shelf** items are paths only, so things without one (inside a zip, on a phone, a mail attachment that offers only file contents) can't go on it [I21].
 - **Disk usage charts** are drawn by hand and have no UI Automation peer; the list beside them is the accessible way in [I20].
 - **Views:** List view takes about 50 ms a frame while scrolling, with smooth scrolling on or off [I10].
@@ -231,13 +228,13 @@ src/ExplorerPlus.Interop       hand-written P/Invoke + [ComImport] shell interfa
                                ShellLink, ShellWindows, DragDrop, Imaging, Volumes, RestartManager
 src/ExplorerPlus.Indexing      no WPF, no shell: VolumeIndex (flat per-record arrays, parallel search, folder totals),
                                IndexQuery, VolumeReader (MFT enumeration + USN journal), MftReader (raw $MFT sizes,
-                               modified and created times), IndexHost (volumes, impersonated search and recent changes), IndexProtocol, IndexClient
+                               modified and created times), IndexHost (volumes, impersonated search, recent changes and clean-up lists), IndexProtocol, IndexClient
 src/ExplorerPlus.IndexService  LocalSystem Windows service (raw advapi32, no NuGet): ServiceRunner, PipeServer,
                                ServiceInstaller
 src/ExplorerPlus.Core          no WPF
   Shell/                       Pidl, ShellLocation, FolderEntry, ShellNative, ShellInfoCache, ShellFilter
                                listing: FolderLoader (streaming), FastFolderEnumerator, ShellFolderEnumerator,
-                                 HomeFeed, SearchLocation, IndexSearch, RecentChanges, FlatView, TagView, DuplicateFinder, ThisPc
+                                 HomeFeed, SearchLocation, IndexSearch, RecentChanges, FlatView, CleanupList, TagView, DuplicateFinder, ThisPc
                                actions: FileOperations, FileOpLog, ShellContextMenu, ShellClipboard, ShellDragDrop,
                                  ShellLauncher, LocationActions, Associations, LinkResolver, ShellNewTemplates,
                                  Archives, BatchRename, FolderCompare, WindowsQuickAccess, FileLocks, DiskUsage

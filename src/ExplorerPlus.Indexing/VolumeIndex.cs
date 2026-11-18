@@ -7,7 +7,10 @@ public readonly record struct IndexHit(string Path, uint Attributes, long Key, l
     public bool IsFolder => (Attributes & VolumeIndex.DirectoryAttribute) != 0;
 }
 
-public sealed record IndexSearchOptions(bool IncludeHidden = true, bool IncludeProtected = false, bool IncludeAppData = true);
+public sealed record IndexSearchOptions(bool IncludeHidden = true, bool IncludeProtected = false, bool IncludeAppData = true,
+    bool IncludeSystemFolders = true);
+
+public enum CleanupKind : byte { Largest = 1, Old = 2, Empty = 3 }
 
 /// <summary>
 /// Every file and folder name on one NTFS volume, kept in flat arrays indexed by MFT record number (the low 48 bits
@@ -18,7 +21,7 @@ public sealed record IndexSearchOptions(bool IncludeHidden = true, bool IncludeP
 public sealed class VolumeIndex
 {
     public const uint DirectoryAttribute = 0x10;
-    private const uint Hidden = 0x2, System = 0x4;
+    private const uint Hidden = 0x2, System = 0x4, ReparsePoint = 0x400;
     private const int Absent = -2, Top = -1;
     private const int MaxDepth = 512;
     private const int ChunkSize = 1 << 15;
@@ -457,6 +460,124 @@ public sealed class VolumeIndex
         }
     }
 
+    /// <summary>
+    /// Clean-up lists below <paramref name="scopeRecord"/>: the largest files, or files neither modified nor created
+    /// since <paramref name="before"/> (a FILETIME) of at least <paramref name="minSize"/> bytes, both biggest first
+    /// (a hit's key is minus its size); or the outermost folders with no file anywhere below them, in path order
+    /// (every key 0). Total counts every match. Empty until the sizes have been read.
+    /// </summary>
+    public (List<IndexHit> Hits, int Total) Cleanup(CleanupKind kind, long before, long minSize, IndexSearchOptions options, int? scopeRecord,
+        int limit, Func<int, string, bool>? canList = null, CancellationToken ct = default)
+    {
+        _lock.EnterReadLock();
+        var state = ArrayPool<byte>.Shared.Rent(_parent.Length);
+        try
+        {
+            if (!HasSizes) return ([], 0);
+            var scope = scopeRecord ?? RootRecord;
+            Array.Clear(state, 0, _parent.Length);
+            state[scope] = InScope;
+            return kind switch
+            {
+                CleanupKind.Empty => EmptyFolders(scope, options, state, limit, canList, ct),
+                CleanupKind.Old => BiggestFiles(before, Math.Max(1, minSize), scope, options, state, limit, canList, ct),
+                _ => BiggestFiles(long.MaxValue, 1, scope, options, state, limit, canList, ct),
+            };
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(state);
+            _lock.ExitReadLock();
+        }
+    }
+
+    // call inside a read
+    private (List<IndexHit>, int) BiggestFiles(long before, long minSize, int scope, IndexSearchOptions options, byte[] state, int limit,
+        Func<int, string, bool>? canList, CancellationToken ct)
+    {
+        // some may fall to the access check, so each part keeps more than asked for
+        var keep = Math.Max(limit * 2, limit + 1000);
+        var parts = new List<Worker>();
+        var chunks = (_parent.Length + ChunkSize - 1) / ChunkSize;
+        Parallel.For(0, chunks, new ParallelOptions { CancellationToken = ct },
+            () => new Worker(),
+            (chunk, _, worker) =>
+            {
+                var end = Math.Min(_parent.Length, (chunk + 1) * ChunkSize);
+                for (var r = chunk * ChunkSize; r < end; r++)
+                {
+                    var parent = _parent[r];
+                    var attributes = _attributes[r];
+                    if (parent < 0 || r == scope || (attributes & DirectoryAttribute) != 0 || !Visible(attributes, options)) continue;
+                    var size = _size[r];
+                    if (size < minSize) continue;
+                    if (before != long.MaxValue && Math.Max(_modified[r], _created[r]) is var touched && (touched <= 0 || touched >= before)) continue;
+                    if (Place(parent, state, options, worker.Stack) != InScope) continue;
+                    worker.Matches++;
+                    var top = worker.Top;
+                    if (top.Count >= keep && top.TryPeek(out var _, out var smallest) && size <= smallest) continue;
+                    top.Enqueue(r, size);
+                    if (top.Count > keep) top.Dequeue();
+                }
+                return worker;
+            },
+            worker => { lock (parts) parts.Add(worker); });
+
+        var found = parts.SelectMany(p => p.Top.UnorderedItems).Select(i => (-i.Priority, i.Element)).ToArray();
+        Array.Sort(found);
+        return (Collect(found, limit, canList, ct), parts.Sum(p => p.Matches));
+    }
+
+    // call inside a read
+    private (List<IndexHit>, int) EmptyFolders(int scope, IndexSearchOptions options, byte[] state, int limit,
+        Func<int, string, bool>? canList, CancellationToken ct)
+    {
+        var n = _parent.Length;
+        var full = ArrayPool<byte>.Shared.Rent(n);
+        try
+        {
+            // every folder with a file, link or junction somewhere below it, hidden ones too
+            Array.Clear(full, 0, n);
+            for (var r = 0; r < n; r++)
+            {
+                if (_parent[r] < 0 || r == RootRecord) continue;
+                var attributes = _attributes[r];
+                if ((attributes & DirectoryAttribute) != 0 && (attributes & ReparsePoint) == 0) continue;
+                for (var (d, depth) = (_parent[r], 0); d >= 0 && d < n && full[d] == 0 && depth < MaxDepth; d = _parent[d], depth++)
+                {
+                    full[d] = 1;
+                    if (d == RootRecord) break;
+                }
+            }
+            ct.ThrowIfCancellationRequested();
+
+            var stack = new int[MaxDepth];
+            var empty = new List<int>();
+            for (var r = 0; r < n; r++)
+            {
+                var parent = _parent[r];
+                var attributes = _attributes[r];
+                if (parent < 0 || parent >= n || r == scope || r == RootRecord || full[r] != 0) continue;
+                if ((attributes & DirectoryAttribute) == 0 || (attributes & ReparsePoint) != 0 || !Visible(attributes, options)) continue;
+                // only the outermost: its parent holds something, or is where the list starts
+                if (full[parent] == 0 && parent != scope) continue;
+                if (IsSkippedFolder(r, options) || Place(parent, state, options, stack) != InScope) continue;
+                empty.Add(r);
+            }
+
+            var buffer = new char[MaxDepth * 64];
+            var byPath = new List<(string Path, int Record)>(empty.Count);
+            foreach (var r in empty)
+            {
+                var length = BuildPath(r, buffer);
+                if (length >= 0) byPath.Add((new string(buffer, 0, length), r));
+            }
+            byPath.Sort((a, b) => string.Compare(a.Path, b.Path, StringComparison.OrdinalIgnoreCase));
+            return (Collect(byPath.Select(p => (0L, p.Record)), limit, canList, ct), byPath.Count);
+        }
+        finally { ArrayPool<byte>.Shared.Return(full); }
+    }
+
     private static ReadOnlySpan<char> ExtensionOf(ReadOnlySpan<char> name)
     {
         var dot = name.LastIndexOf('.');
@@ -505,6 +626,8 @@ public sealed class VolumeIndex
     {
         public readonly List<long> Keys = [];
         public readonly List<(long, int)> Changes = [];
+        public readonly PriorityQueue<int, long> Top = new();
+        public int Matches;
         public readonly char[] Path = new char[MaxDepth * 64];
         public readonly int[] Stack = new int[MaxDepth];
     }
@@ -561,8 +684,7 @@ public sealed class VolumeIndex
             if (d < 0 || d >= _parent.Length) { result = OutOfScope; break; }
             var known = Volatile.Read(ref state[d]);
             if (known != 0) { result = known; break; }
-            if (d == RootRecord || _parent[d] < 0 || depth == stack.Length || !Visible(_attributes[d], options) || IsExcludedFolder(d) ||
-                (!options.IncludeAppData && NameOf(d).Equals("AppData", StringComparison.OrdinalIgnoreCase)))
+            if (d == RootRecord || _parent[d] < 0 || depth == stack.Length || !Visible(_attributes[d], options) || IsSkippedFolder(d, options))
             {
                 result = OutOfScope;
                 stack[depth < stack.Length ? depth++ : depth - 1] = d;
@@ -574,6 +696,17 @@ public sealed class VolumeIndex
         for (var i = 0; i < depth; i++) Volatile.Write(ref state[stack[i]], result);
         return result;
     }
+
+    private bool IsSkippedFolder(int d, IndexSearchOptions options) =>
+        IsExcludedFolder(d) ||
+        !options.IncludeAppData && NameOf(d).Equals("AppData", StringComparison.OrdinalIgnoreCase) ||
+        !options.IncludeSystemFolders && _parent[d] == RootRecord && IsSystemFolderName(NameOf(d));
+
+    private static bool IsSystemFolderName(ReadOnlySpan<char> name) =>
+        name.Equals("Windows", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("Program Files", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("Program Files (x86)", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("ProgramData", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>The Recycle Bin and System Volume Information, whose contents are never useful search results.</summary>
     private bool IsExcludedFolder(int d) =>

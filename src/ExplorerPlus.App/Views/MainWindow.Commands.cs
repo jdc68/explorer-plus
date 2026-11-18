@@ -302,8 +302,20 @@ public partial class MainWindow
         catch (Exception ex) { ViewModel.ShowNotice(ex.Message); }
     }
 
+    // ================= Clean up =================
+
+    // the largest files first; below the folder given, the selected or open one, or on every drive
+    private async void CleanUp(string? folder = null, bool everywhere = false)
+    {
+        if (!everywhere) folder ??= FolderForTools();
+        var query = new CleanupQuery(Indexing.CleanupKind.Largest, AppSettings.Current.CleanupYears, AppSettings.Current.CleanupMinMegabytes);
+        try { await ViewModel.NavigateAsync(CleanupList.Url(query, folder), OpenTarget.NewTab); }
+        catch (Exception ex) { ViewModel.ShowNotice(ex.Message); }
+    }
+
     private static class Glyphs
     {
+        public const string Cleanup = "";
         public const string Tag = SidebarViewModel.TagGlyph;
         public const string Duplicates = "\uE8C8";
         public const string DiskUsage = "\uEB05";
@@ -369,6 +381,9 @@ public partial class MainWindow
         Add("Compare and sync folders…", CompareFolders, null, Glyphs.Compare);
         if (FolderForTools() is { } usageOf)
             list.Add(new PaletteEntry("Analyze disk usage", () => AnalyzeDiskUsage(), null, usageOf, Glyphs.DiskUsage));
+        Add("Clean up every drive: largest, old and empty", () => CleanUp(everywhere: true), null, Glyphs.Cleanup);
+        if (FolderForTools() is { } cleanIn)
+            list.Add(new PaletteEntry("Clean up this folder: largest, old and empty", () => CleanUp(cleanIn), null, cleanIn, Glyphs.Cleanup));
         Add("Recent changes…", () => ShowRecentChanges(here: false), null, SidebarViewModel.RecentGlyph);
         if (inFolder) list.Add(new PaletteEntry("Recent changes in this folder", () => ShowRecentChanges(here: true), null, tab!.Location!.FileSystemPath, SidebarViewModel.RecentGlyph));
         if (paths.Count == selection.Count && paths.Count > 0)

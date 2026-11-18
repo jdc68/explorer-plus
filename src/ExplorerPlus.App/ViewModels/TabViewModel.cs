@@ -6,6 +6,7 @@ using ExplorerPlus.App.Infrastructure;
 using ExplorerPlus.App.Services;
 using ExplorerPlus.Core.Shell;
 using ExplorerPlus.Core.Threading;
+using ExplorerPlus.Indexing;
 using ExplorerPlus.Interop;
 
 namespace ExplorerPlus.App.ViewModels;
@@ -106,6 +107,9 @@ public sealed class TabViewModel : ObservableObject, IDisposable
             OnPropertyChanged(nameof(IsFlat));
             OnPropertyChanged(nameof(CanFlat));
             OnPropertyChanged(nameof(FlatKind));
+            OnPropertyChanged(nameof(IsCleanup));
+            OnPropertyChanged(nameof(Cleanup));
+            OnPropertyChanged(nameof(IsOldCleanup));
         }
     }
 
@@ -123,6 +127,8 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         ? "Filter recent changes"
         : _location?.IsFlat == true
         ? $"Filter files in {_location.SearchScope!.DisplayName}"
+        : _location?.IsCleanup == true
+        ? $"Filter {CleanupList.Title(_location.Cleanup!.Kind).ToLowerInvariant()}"
         : Kind == LocationKind.Search
         ? $"Filter results for “{_location!.SearchQuery}”"
         : CanSearch ? $"Search {_location!.DisplayName}" : $"Filter {_location?.DisplayName ?? ""}";
@@ -130,7 +136,8 @@ public sealed class TabViewModel : ObservableObject, IDisposable
     public LocationKind Kind => _location switch
     {
         null => LocationKind.Folder,
-        { IsSearch: true } or { IsTagView: true } or { IsDuplicates: true } or { IsRecentChanges: true } or { IsFlat: true } => LocationKind.Search,
+        { IsSearch: true } or { IsTagView: true } or { IsDuplicates: true } or { IsRecentChanges: true } or { IsFlat: true } or { IsCleanup: true }
+            => LocationKind.Search,
         { IsHome: true } => LocationKind.Home,
         { IsThisPC: true } => LocationKind.ThisPC,
         { IsNetwork: true } => LocationKind.Network,
@@ -197,6 +204,12 @@ public sealed class TabViewModel : ObservableObject, IDisposable
             Core.Shell.RecentSpan.Today => "Nothing changed today.",
             _ => "Nothing changed in the last 7 days.",
         } + (_location.RecentIncludesAppData ? "" : " AppData isn't included."),
+        LocationKind.Search when _location!.Cleanup is { } cleanup => cleanup.Kind switch
+        {
+            CleanupKind.Largest => "No files here.",
+            CleanupKind.Old => $"No files of {(cleanup.MinMegabytes > 0 ? $"{cleanup.MinMegabytes} MB or more" : "any size")} that haven't changed in {Years(cleanup.Years)}.",
+            _ => "No empty folders.",
+        } + (cleanup.IncludeSystem ? "" : " Windows, program and hidden folders aren't included."),
         LocationKind.Search when _location!.IsFlat => _location.FlatKind is { Length: > 0 } kind
             ? $"No {kind.ToLowerInvariant()} below {_location.SearchScope!.DisplayName}." : $"No files below {_location.SearchScope!.DisplayName}.",
         LocationKind.Search => "No items match your search.",
@@ -214,6 +227,19 @@ public sealed class TabViewModel : ObservableObject, IDisposable
     {
         if (_location is not { IsRecentChanges: true, SearchScope: { } scope }) return Task.CompletedTask;
         return NavigateAsync(RecentChanges.Create(span, scope, includeAppData), NavMode.Replace);
+    }
+
+    public bool IsCleanup => _location?.IsCleanup == true;
+    public CleanupQuery? Cleanup => _location?.Cleanup;
+    public bool IsOldCleanup => Cleanup?.Kind == CleanupKind.Old;
+
+    private static string Years(int years) => years == 1 ? "a year" : $"{years} years";
+
+    /// <summary>Another clean-up list, age, size or system switch, in the same tab.</summary>
+    public Task ShowCleanupAsync(CleanupQuery query)
+    {
+        if (_location is not { IsCleanup: true, SearchScope: { } scope } || query == _location.Cleanup) return Task.CompletedTask;
+        return NavigateAsync(CleanupList.Create(query, scope), NavMode.Replace);
     }
 
     public bool IsFlat => _location?.IsFlat == true;
@@ -344,7 +370,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
     private IDisposable? WatchFor(ShellLocation location)
     {
         // A search would restart on every change anywhere below it; F5 runs it again instead.
-        if (location.IsTagView || location.IsDuplicates || location.IsRecentChanges || location.IsFlat)
+        if (location.IsTagView || location.IsDuplicates || location.IsRecentChanges || location.IsFlat || location.IsCleanup)
             return ShellChangeWatcher.Instance.Watch(Pidl.Desktop, true, SHCNE.DELETE | SHCNE.RMDIR | SHCNE.RENAMEITEM | SHCNE.RENAMEFOLDER,
                 c => RemoveGone(c.Path1));
         if (location.IsSearch) return null;
@@ -800,11 +826,12 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         : _location?.IsDuplicates == true ? DuplicateFinder.Scheme
         : _location?.IsRecentChanges == true ? RecentChanges.Scheme
         : _location?.IsFlat == true ? FlatView.Scheme
+        : _location?.IsCleanup == true ? CleanupList.Scheme
         : _location?.FileSystemPath ?? _location?.ParsingName;
 
     private bool IsThisPC => Kind == LocationKind.ThisPC;
-    // recent changes come newest first, by the newer of the modified and created times
-    private bool KeepsOwnOrder => IsHome || IsThisPC || _location?.IsRecentChanges == true;
+    // recent changes come newest first, by the newer of the modified and created times; clean-up lists biggest first
+    private bool KeepsOwnOrder => IsHome || IsThisPC || _location?.IsRecentChanges == true || IsCleanup;
     private SortColumn DefaultSort => KeepsOwnOrder ? SortColumn.Default : SortColumn.Name;
     private string? DefaultGroup => IsHome || IsThisPC || _location?.IsDuplicates == true || IsFlat ? ColumnCatalog.Section : null;
     private ViewMode DefaultMode => IsThisPC ? ViewMode.Tiles : ViewMode.Details;
@@ -1310,16 +1337,22 @@ public sealed class TabViewModel : ObservableObject, IDisposable
                             + (_isLoading ? " · still looking" : "");
         }
         else if (_location?.IsDuplicates == true && !_isLoading) ItemCountText = "No duplicate files";
+        else if (_location?.Cleanup is { } cleanup && Items.Count > 0)
+            ItemCountText = cleanup.Kind == CleanupKind.Empty
+                ? $"{Items.Count:N0} empty folder{(Items.Count == 1 ? "" : "s")}"
+                : $"{Items.Count:N0} file{(Items.Count == 1 ? "" : "s")} · {ItemViewModel.FormatSizeShort(Items.Sum(i => Math.Max(0, i.Entry.Size)))}";
         else if (IsThisPC && Items.Where(i => i.HasSpaceInfo).ToList() is { Count: > 0 } drives)
         {
             var total = drives.Sum(d => (decimal)d.DriveTotal);
             var free = drives.Sum(d => (decimal)d.DriveFree);
             ItemCountText += $" · {ItemViewModel.FormatSizeShort((long)free)} free of {ItemViewModel.FormatSizeShort((long)total)} on {drives.Count} drive{(drives.Count == 1 ? "" : "s")}";
         }
-        if (!_isLoading && (_location?.IndexResults ?? _location?.RecentResults ?? _location?.FlatResults) is { } found)
+        if (!_isLoading && (_location?.IndexResults ?? _location?.RecentResults ?? _location?.FlatResults ?? _location?.CleanupResults) is { } found)
         {
             if (found.Truncated)
                 ItemCountText += _location!.IsRecentChanges ? $" (the newest of {found.Total:N0} changes)"
+                    : _location.Cleanup?.Kind == CleanupKind.Empty ? $" (the first {found.Limit:N0} of {found.Total:N0} folders)"
+                    : _location.IsCleanup ? $" (the largest {found.Limit:N0} of {found.Total:N0} files)"
                     : _location.IsFlat ? $" (the first {found.Limit:N0} of {found.Total:N0} files)" : $" (the best of {found.Total:N0} matches)";
             else if (found.CutUncounted) ItemCountText += $" (the first {found.Limit:N0} files)";
 

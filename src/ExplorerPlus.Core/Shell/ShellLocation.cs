@@ -54,6 +54,12 @@ public sealed class ShellLocation
     public IndexSearchInfo? FlatResults { get; init; }
 
     public bool IsFlat => FlatKind is not null;
+
+    // clean-up lists only: which list, and its limits
+    public CleanupQuery? Cleanup { get; init; }
+    public IndexSearchInfo? CleanupResults { get; init; }
+
+    public bool IsCleanup => Cleanup is not null;
     public bool IsHome => Is(Known.Home);
     public bool IsRecycleBin => Is(Known.RecycleBin);
     public bool IsNetwork => Is(Known.Network);
@@ -120,6 +126,7 @@ public sealed class ShellLocation
             if (DuplicateFinder.IsUrl(parsingName)) return DuplicateFinder.FromUrl(parsingName);
             if (RecentChanges.IsUrl(parsingName)) return RecentChanges.FromUrl(parsingName);
             if (FlatView.IsUrl(parsingName)) return FlatView.FromUrl(parsingName);
+            if (CleanupList.IsUrl(parsingName)) return CleanupList.FromUrl(parsingName);
             var pidl = ShellNative.TryParse(parsingName);
             if (pidl is null) return null;
             var loc = FromPidl(pidl);

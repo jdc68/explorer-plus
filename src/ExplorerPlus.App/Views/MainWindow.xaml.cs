@@ -571,6 +571,37 @@ public partial class MainWindow : Window
         catch (Exception ex) { ViewModel.ShowNotice(ex.Message); }
     }
 
+    private void OnCleanupKindClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string name } && Enum.TryParse<Indexing.CleanupKind>(name, out var kind))
+            ShowCleanup(q => q with { Kind = kind });
+    }
+
+    private void OnCleanupYearsClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string text } || !int.TryParse(text, out var years)) return;
+        AppSettings.Current.CleanupYears = years;
+        AppSettings.Current.Save();
+        ShowCleanup(q => q with { Years = years });
+    }
+
+    private void OnCleanupSizeClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string text } || !int.TryParse(text, out var megabytes)) return;
+        AppSettings.Current.CleanupMinMegabytes = megabytes;
+        AppSettings.Current.Save();
+        ShowCleanup(q => q with { MinMegabytes = megabytes });
+    }
+
+    private void OnCleanupSystemClick(object sender, RoutedEventArgs e) => ShowCleanup(q => q with { IncludeSystem = !q.IncludeSystem });
+
+    private async void ShowCleanup(Func<CleanupQuery, CleanupQuery> change)
+    {
+        if (Tab is not { Cleanup: { } query } tab) return;
+        try { await tab.ShowCleanupAsync(change(query)); }
+        catch (Exception ex) { ViewModel.ShowNotice(ex.Message); }
+    }
+
     private async void OnRecentAppDataClick(object sender, RoutedEventArgs e)
     {
         if (Tab is not { RecentSpan: { } span } tab) return;
@@ -688,6 +719,7 @@ public partial class MainWindow : Window
         menu.Items.Add(MenuEntry("Compare and sync folders…", null, CompareFolders, "\uE8AB"));
         menu.Items.Add(MenuEntry("Recent changes", null, () => ShowRecentChanges(here: false), SidebarViewModel.RecentGlyph));
         menu.Items.Add(MenuEntry("Analyze disk usage", null, () => AnalyzeDiskUsage(), Glyphs.DiskUsage));
+        menu.Items.Add(MenuEntry("Clean up…", null, () => CleanUp(), Glyphs.Cleanup));
         menu.Items.Add(new Separator());
         menu.Items.Add(MenuEntry("Map network drive…", null, ViewModel.MapNetworkDrive,"\uE8CE"));
         menu.Items.Add(MenuEntry("Disconnect network drive…", null, ViewModel.DisconnectNetworkDrive, "\uE8CD"));
@@ -1048,6 +1080,7 @@ public partial class MainWindow : Window
     private const int CmdWhatIsUsing = ShellContextMenu.FirstCustomId + 17;
     private const int CmdDiskUsage = ShellContextMenu.FirstCustomId + 18;
     private const int CmdShelf = ShellContextMenu.FirstCustomId + 19;
+    private const int CmdCleanup = ShellContextMenu.FirstCustomId + 25;
     private const int CmdCompressBase = ShellContextMenu.FirstCustomId + 20; // + (int)ArchiveFormat
     private const int CmdTagBase = ShellContextMenu.FirstCustomId + 200;
     private const int CmdChoiceLimit = 50;
@@ -1218,6 +1251,9 @@ public partial class MainWindow : Window
             case MenuResultKind.Custom when result.CustomId == CmdWhatIsUsing:
                 ShowWhatIsUsing(items);
                 break;
+            case MenuResultKind.Custom when result.CustomId == CmdCleanup:
+                CleanUp(items[0].Entry.Path);
+                break;
             case MenuResultKind.Custom when result.CustomId == CmdDiskUsage:
                 AnalyzeDiskUsage(items[0].Entry.Path);
                 break;
@@ -1276,7 +1312,10 @@ public partial class MainWindow : Window
             custom.Add(new CustomMenuItem { Text = "What is using this?", Id = CmdWhatIsUsing });
         }
         if (items is [{ IsFolder: true, Entry.Path: { } folder }] && Path.IsPathFullyQualified(folder))
+        {
             custom.Add(new CustomMenuItem { Text = "Analyze disk usage", Id = CmdDiskUsage });
+            custom.Add(new CustomMenuItem { Text = "Clean up…", Id = CmdCleanup });
+        }
         if (items.Count > 0 && items.All(i => i.Entry.Path is { } p && Path.IsPathFullyQualified(p)))
             custom.Add(new CustomMenuItem { Text = "Add to shelf", Id = CmdShelf });
         if (TaggablePaths(items) is { Count: > 0 } taggable && taggable.Count == items.Count)

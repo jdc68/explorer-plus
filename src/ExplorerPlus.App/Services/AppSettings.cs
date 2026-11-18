@@ -47,6 +47,10 @@ public sealed class AppSettings
     // Treemap or Sunburst, the last chart picked in the disk usage window
     public string DiskUsageChart { get; set; } = "Treemap";
 
+    // the last age and size picked for Clean up's old files
+    public int CleanupYears { get; set; } = CleanupList.DefaultYears;
+    public int CleanupMinMegabytes { get; set; } = CleanupList.DefaultMegabytes;
+
     /// <summary>Reopen last time's tabs. Off by default: closing the last window closes its tabs, like File Explorer.</summary>
     public bool RestoreSession { get; set; }
 

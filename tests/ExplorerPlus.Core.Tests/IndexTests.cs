@@ -316,6 +316,104 @@ public class IndexTests
     }
 
     [Fact]
+    public void Cleanup_request_round_trips_and_needs_version_5()
+    {
+        var sent = new CleanupRequest(@"D:\Photos", CleanupKind.Old, 123, 10 << 20, 10_000, true);
+        Assert.Equal(sent, IndexProtocol.DecodeRequest(IndexProtocol.EncodeCleanup(sent)));
+        Assert.Null(Assert.IsType<CleanupRequest>(IndexProtocol.DecodeRequest(IndexProtocol.EncodeCleanup(sent with { Scope = null }))).Scope);
+
+        var asVersion4 = IndexProtocol.EncodeCleanup(sent);
+        BitConverter.GetBytes(4).CopyTo(asVersion4, 0);
+        Assert.Throws<InvalidDataException>(() => IndexProtocol.DecodeRequest(asVersion4));
+        Assert.False(new StatusResponse("0.1.41", [], Protocol: 4).HasCleanup);
+        Assert.True(new StatusResponse("0.1.44", []).HasCleanup);
+    }
+
+    // sizes: report.pdf 100, Report draft.docx 50, cache.pdf (AppData) 7, notepad.exe (Windows) 1000, $R1.pdf 3, report.cs 20
+    private static VolumeIndex WithSizes(Action<long[], long[]>? times = null)
+    {
+        var index = Sample();
+        var sizes = new long[40];
+        var modified = new long[40];
+        var created = new long[40];
+        (sizes[23], sizes[24], sizes[26], sizes[28], sizes[30], sizes[33]) = (100, 50, 7, 1000, 3, 20);
+        times?.Invoke(modified, created);
+        index.EnterWrite();
+        index.ApplySizes(sizes, modified, created);
+        index.ExitWrite();
+        return index;
+    }
+
+    private static readonly IndexSearchOptions NoSystem = new(IncludeHidden: false, IncludeProtected: false, IncludeAppData: false, IncludeSystemFolders: false);
+
+    [Fact]
+    public void Largest_and_old_files_come_biggest_first_without_system_folders()
+    {
+        var index = WithSizes((modified, created) =>
+        {
+            (modified[23], modified[24], modified[33]) = (100, 900, 200);
+            created[33] = 950; // copied in lately: not old
+        });
+        List<string> Largest(IndexSearchOptions options, int? scope = null, int limit = 100) =>
+            index.Cleanup(CleanupKind.Largest, 0, 0, options, scope, limit).Hits.Select(h => h.Path).ToList();
+
+        Assert.Equal([@"C:\Users\denis\Documents\report.pdf", @"C:\Users\denis\Documents\Report draft.docx", @"C:\Projects\src\report.cs"], Largest(NoSystem));
+        Assert.Equal([@"C:\Windows\notepad.exe", @"C:\Users\denis\Documents\report.pdf"], Largest(new IndexSearchOptions(true, true), limit: 2));
+        Assert.Equal([@"C:\Projects\src\report.cs"], Largest(NoSystem, scope: 31));
+        var cut = index.Cleanup(CleanupKind.Largest, 0, 0, NoSystem, null, 1);
+        Assert.Equal((1, 3, -100L), (cut.Hits.Count, cut.Total, cut.Hits[0].Key));
+
+        // untouched before 500, at least 30 bytes: report.pdf only (report.cs is new, the draft was changed at 900)
+        Assert.Equal([@"C:\Users\denis\Documents\report.pdf"], index.Cleanup(CleanupKind.Old, 500, 30, NoSystem, null, 100).Hits.Select(h => h.Path));
+        // a file with no known time is never old
+        Assert.DoesNotContain(@"C:\Windows\notepad.exe", index.Cleanup(CleanupKind.Old, 500, 0, new IndexSearchOptions(true, true), null, 100).Hits.Select(h => h.Path));
+    }
+
+    [Fact]
+    public void Empty_folders_list_only_the_outermost()
+    {
+        var index = WithSizes();
+        index.EnterWrite();
+        index.Upsert(Ref(40), Ref(31), "empty", Dir);
+        index.Upsert(Ref(41), Ref(31), "tree", Dir);
+        index.Upsert(Ref(42), Ref(41), "a", Dir);
+        index.Upsert(Ref(43), Ref(42), "b", Dir);
+        index.Upsert(Ref(44), Ref(41), "c", Dir);
+        index.Upsert(Ref(45), Ref(31), "custom", Dir);
+        index.Upsert(Ref(46), Ref(45), "desktop.ini", Normal | Hidden | System); // a hidden file still counts
+        index.Upsert(Ref(47), Ref(31), "links", Dir);
+        index.Upsert(Ref(48), Ref(47), "junction", Dir | 0x400); // a junction isn't empty, nor what holds it
+        index.Upsert(Ref(49), Ref(27), "Temp", Dir); // in Windows
+        index.Upsert(Ref(50), Ref(31), ".cache", Dir | Hidden);
+        index.ExitWrite();
+        List<string> Empty(IndexSearchOptions options, int? scope = null, Func<int, string, bool>? canList = null) =>
+            index.Cleanup(CleanupKind.Empty, 0, 0, options, scope, 100, canList).Hits.Select(h => h.Path).ToList();
+
+        Assert.Equal([@"C:\Projects\empty", @"C:\Projects\tree"], Empty(NoSystem));
+        Assert.Equal([@"C:\Projects\.cache", @"C:\Projects\empty", @"C:\Projects\tree", @"C:\Windows\Temp"], Empty(new IndexSearchOptions(true, true)));
+        // inside an empty tree, its folders are listed one level down
+        Assert.Equal([@"C:\Projects\tree\a", @"C:\Projects\tree\c"], Empty(NoSystem, scope: 41));
+        Assert.Empty(Empty(NoSystem, canList: (_, path) => path != @"C:\Projects"));
+        Assert.Equal((2, 0L), (index.Cleanup(CleanupKind.Empty, 0, 0, NoSystem, null, 1).Total, index.Cleanup(CleanupKind.Empty, 0, 0, NoSystem, null, 1).Hits[0].Key));
+    }
+
+    [Fact]
+    public void Empty_folders_are_checked_on_disk()
+    {
+        var root = Directory.CreateTempSubdirectory("ExplorerPlusEmpty").FullName;
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(root, "tree", "a", "b"));
+            Directory.CreateDirectory(Path.Combine(root, "full", "a"));
+            File.WriteAllText(Path.Combine(root, "full", "a", "x.txt"), "x");
+            Assert.True(Shell.CleanupList.IsEmptyOnDisk(Path.Combine(root, "tree"), 0, default));
+            Assert.False(Shell.CleanupList.IsEmptyOnDisk(Path.Combine(root, "full"), 0, default));
+            Assert.False(Shell.CleanupList.IsEmptyOnDisk(Path.Combine(root, "gone"), 0, default));
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    [Fact]
     public void Recent_changes_wait_for_the_times()
     {
         var index = Sample();
