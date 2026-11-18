@@ -10,11 +10,15 @@ public enum FileOpKind { Rename, Move, Copy, Delete, New }
 /// <param name="RecycledItem">For a delete that went to the Recycle Bin: the item inside the bin.</param>
 public sealed record FileOpEntry(FileOpKind Kind, string? Source, string? Result, Pidl? RecycledItem = null);
 
+// Destination is where a copy, move or rename was going, which may be what was held open (a replace)
+public sealed record FileOpFailure(FileOpKind Kind, string? Source, string? Destination, int HResult);
+
 /// <summary>Collects what an IFileOperation really did (final names after collisions, Recycle Bin items) so it can be undone.</summary>
 [ComVisible(true)]
 public sealed class FileOpLog : IFileOperationProgressSink
 {
     private readonly List<FileOpEntry> _entries = [];
+    private readonly List<FileOpFailure> _failures = [];
 
     /// <summary>Raised on the operation's thread with the share of work done (0…1), for taskbar progress.</summary>
     public event Action<double>? Progress;
@@ -24,10 +28,30 @@ public sealed class FileOpLog : IFileOperationProgressSink
         get { lock (_entries) return _entries.ToList(); }
     }
 
+    // errors, and items cancelled or skipped in the shell's in-use dialog (those report COPYENGINE_S_PENDING first)
+    public IReadOnlyList<FileOpFailure> Failures
+    {
+        get { lock (_failures) return _failures.ToList(); }
+    }
+
     // Success codes that still mean "this item is now where the log says, and wasn't there before".
     private const int DontProcessChildren = 0x00270008; // a rename or whole-folder move/copy
     private const int KeepBoth = 0x0027000C;
     private const int CollisionResolved = 0x0027000E;
+    private const int UserIgnored = 0x00270005;
+
+    private void Fail(int hr, FileOpKind kind, string? source, string? destination)
+    {
+        if (hr >= 0 && hr != UserIgnored) return;
+        lock (_failures) _failures.Add(new FileOpFailure(kind, source, destination, hr));
+    }
+
+    private static string? Target(IShellItem? folder, string? name, string? source)
+    {
+        var dir = PathOf(folder);
+        name ??= source is null ? null : Path.GetFileName(source.TrimEnd('\\'));
+        return dir is null || string.IsNullOrEmpty(name) ? null : Path.Combine(dir, name);
+    }
 
     private void Add(int hr, FileOpEntry entry)
     {
@@ -67,7 +91,10 @@ public sealed class FileOpLog : IFileOperationProgressSink
 
     public int PostRenameItem(uint dwFlags, IShellItem? psiItem, string? pszNewName, int hrRename, IShellItem? psiNewlyCreated)
     {
-        Add(hrRename, new FileOpEntry(FileOpKind.Rename, PathOf(psiItem), PathOf(psiNewlyCreated)));
+        var source = PathOf(psiItem);
+        Add(hrRename, new FileOpEntry(FileOpKind.Rename, source, PathOf(psiNewlyCreated)));
+        Fail(hrRename, FileOpKind.Rename, source,
+            source is not null && pszNewName is not null && Path.GetDirectoryName(source.TrimEnd('\\')) is { } dir ? Path.Combine(dir, pszNewName) : null);
         return 0;
     }
 
@@ -75,7 +102,9 @@ public sealed class FileOpLog : IFileOperationProgressSink
 
     public int PostMoveItem(uint dwFlags, IShellItem? psiItem, IShellItem? psiDestinationFolder, string? pszNewName, int hrMove, IShellItem? psiNewlyCreated)
     {
-        Add(hrMove, new FileOpEntry(FileOpKind.Move, PathOf(psiItem), PathOf(psiNewlyCreated)));
+        var source = PathOf(psiItem);
+        Add(hrMove, new FileOpEntry(FileOpKind.Move, source, PathOf(psiNewlyCreated)));
+        Fail(hrMove, FileOpKind.Move, source, Target(psiDestinationFolder, pszNewName, source));
         return 0;
     }
 
@@ -83,7 +112,9 @@ public sealed class FileOpLog : IFileOperationProgressSink
 
     public int PostCopyItem(uint dwFlags, IShellItem? psiItem, IShellItem? psiDestinationFolder, string? pszNewName, int hrCopy, IShellItem? psiNewlyCreated)
     {
-        Add(hrCopy, new FileOpEntry(FileOpKind.Copy, PathOf(psiItem), PathOf(psiNewlyCreated)));
+        var source = PathOf(psiItem);
+        Add(hrCopy, new FileOpEntry(FileOpKind.Copy, source, PathOf(psiNewlyCreated)));
+        Fail(hrCopy, FileOpKind.Copy, source, Target(psiDestinationFolder, pszNewName, source));
         return 0;
     }
 
@@ -91,7 +122,9 @@ public sealed class FileOpLog : IFileOperationProgressSink
 
     public int PostDeleteItem(uint dwFlags, IShellItem? psiItem, int hrDelete, IShellItem? psiNewlyCreated)
     {
-        Add(hrDelete, new FileOpEntry(FileOpKind.Delete, PathOf(psiItem), null, PidlOf(psiNewlyCreated)));
+        var source = PathOf(psiItem);
+        Add(hrDelete, new FileOpEntry(FileOpKind.Delete, source, null, PidlOf(psiNewlyCreated)));
+        Fail(hrDelete, FileOpKind.Delete, source, null);
         return 0;
     }
 

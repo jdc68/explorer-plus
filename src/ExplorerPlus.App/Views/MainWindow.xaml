@@ -871,6 +871,19 @@
                     <TextBlock x:Name="TransfersText" VerticalAlignment="Center" />
                 </StackPanel>
             </Button>
+            <ItemsControl DockPanel.Dock="Right" ItemsSource="{Binding NoticeActions}" VerticalAlignment="Center" Margin="4,0,0,0" Focusable="False">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <StackPanel Orientation="Horizontal" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="{x:Type vm:NoticeAction}">
+                        <Button Style="{StaticResource CommandButton}" Content="{Binding Label}" ToolTip="{Binding ToolTip}" Click="OnNoticeActionClick"
+                                Padding="8,0" MinHeight="24" Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}" />
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
             <TextBlock DockPanel.Dock="Right" Text="{Binding Notice}" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorPrimaryBrush}" TextTrimming="CharacterEllipsis" />
         </DockPanel>
 

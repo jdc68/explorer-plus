@@ -22,6 +22,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private TabViewModel? _activeTab;
     private bool _rightActive;
     private string? _notice;
+    private IReadOnlyList<NoticeAction> _noticeActions = [];
     private CancellationTokenSource? _noticeCts;
 
     public MainViewModel(Func<IntPtr> hwnd)
@@ -202,13 +203,46 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         private set => Set(ref _notice, value);
     }
 
-    public void ShowNotice(string message)
+    public IReadOnlyList<NoticeAction> NoticeActions
+    {
+        get => _noticeActions;
+        private set => Set(ref _noticeActions, value);
+    }
+
+    public void ShowNotice(string message) => ShowNotice(message, [], TimeSpan.FromSeconds(5));
+
+    public void ShowNotice(string message, IReadOnlyList<NoticeAction> actions, TimeSpan duration)
     {
         Notice = message;
+        NoticeActions = actions;
         _noticeCts?.Cancel();
         var cts = _noticeCts = new CancellationTokenSource();
-        Task.Delay(5000, cts.Token).ContinueWith(t => { if (!t.IsCanceled) Notice = null; },
+        Task.Delay(duration, cts.Token).ContinueWith(t => { if (!t.IsCanceled) ClearNotice(); },
             TaskScheduler.FromCurrentSynchronizationContext());
+    }
+
+    public void ClearNotice()
+    {
+        _noticeCts?.Cancel();
+        Notice = null;
+        NoticeActions = [];
+    }
+
+    // a delete, move, copy or rename failed because an app holds the files; the window shows it with its way out
+    public event Action<InUseReport>? InUseFound;
+
+    private async Task ReportInUseAsync(FileOpLog log, FileOpKind kind, Func<Task>? retry)
+    {
+        var paths = FileLocks.PathsToCheck(log.Failures);
+        if (paths.Count == 0 || InUseFound is null) return;
+        IReadOnlyList<FileHolder> holders;
+        List<string> left;
+        try
+        {
+            (holders, left) = await Task.Run(() => (FileLocks.FindHolders(paths), paths.Where(p => File.Exists(p) || Directory.Exists(p)).ToList()));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return; }
+        if (holders.Count > 0) InUseFound?.Invoke(new InUseReport(left.Count > 0 ? left : paths, holders, kind, retry));
     }
 
     private void OnTabPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -536,9 +570,25 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         // Deleting from the Recycle Bin is always for good.
         if (SelectedTab?.IsRecycleBin == true) permanent = true;
         var pidls = await Task.WhenAll(items.Select(i => i.Entry.GetPidlAsync()));
+        var paths = items.Select(i => i.Entry.Path).OfType<string>().ToList();
+        await DeleteAsync(pidls, paths.Count == items.Count ? paths : [], permanent, confirm: true);
+    }
+
+    // the user already said yes once, so a retry doesn't ask again
+    public async Task DeletePathsAsync(IReadOnlyList<string> paths, bool permanent)
+    {
+        var existing = await Task.Run(() => paths.Where(p => File.Exists(p) || Directory.Exists(p)).ToList());
+        if (existing.Count == 0) return;
+        var pidls = await StaWorkerPool.General.Run(() => existing.Select(ShellNative.TryParse).OfType<Pidl>().ToArray());
+        if (pidls.Length > 0) await DeleteAsync(pidls, existing, permanent, confirm: false);
+    }
+
+    private async Task DeleteAsync(IReadOnlyList<Pidl> pidls, IReadOnlyList<string> paths, bool permanent, bool confirm)
+    {
         var (log, progress) = TrackedLog();
-        using (progress) await FileOperations.DeleteAsync(pidls, Hwnd, permanent, log: log);
+        using (progress) await FileOperations.DeleteAsync(pidls, Hwnd, permanent, confirm, log);
         if (!permanent) UndoService.PushFrom(log, FileOpKind.Delete, "Delete");
+        if (paths.Count > 0) await ReportInUseAsync(log, FileOpKind.Delete, () => DeletePathsAsync(paths, permanent));
     }
 
     public async Task SyncAsync(SyncPlan plan)
@@ -584,6 +634,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             Stars.Rename(from, to);
             Tags.Rename(from, to);
         }
+        if (result != FileOpResult.Succeeded) await ReportInUseAsync(log, FileOpKind.Rename, () => RenameAsync(item, newName));
         return result == FileOpResult.Succeeded;
     }
 
@@ -664,6 +715,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                         : await FileOperations.CopyAsync(sources, destination, owner, renameOnCollision: sameFolder, log: log);
                 // A cancelled transfer may still have done part of the work; that part is undoable too.
                 UndoService.PushFrom(log, move ? FileOpKind.Move : FileOpKind.Copy, move ? "Move" : "Copy");
+                if (result != FileOpResult.Succeeded)
+                {
+                    var failed = log.Failures;
+                    // only the top-level items that something failed in, so a retry doesn't copy everything again
+                    var again = files.Where(f => failed.Any(x =>
+                        x.Source is { } s && FileLocks.IsSameOrUnder(s, f) ||
+                        x.Destination is { } d && destinationPath is not null &&
+                        FileLocks.IsSameOrUnder(d, Path.Combine(destinationPath, Path.GetFileName(f.TrimEnd('\\')))))).ToList();
+                    await ReportInUseAsync(log, move ? FileOpKind.Move : FileOpKind.Copy,
+                        again.Count == 0 ? null : async () => { await TransferAsync(again, destination, destinationPath, destinationName, move); });
+                }
             }
             catch (Exception ex) { ShowNotice(ex.Message); }
         });
@@ -925,3 +987,5 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         Sidebar.Dispose();
     }
 }
+
+public sealed record NoticeAction(string Label, Action Run, string? ToolTip = null);

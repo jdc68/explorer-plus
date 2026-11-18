@@ -331,6 +331,8 @@ public partial class MainWindow
             list.Add(new PaletteEntry("Find duplicate files", FindDuplicates, null, dupesIn, Glyphs.Duplicates));
         Add("Compare and sync folders…", CompareFolders, null, Glyphs.Compare);
         if (paths.Count == selection.Count && paths.Count > 0)
+            Add("What is using this?", () => ShowWhatIsUsing(selection), null, "");
+        if (paths.Count == selection.Count && paths.Count > 0)
         {
             foreach (var format in new[] { ArchiveFormat.Zip, ArchiveFormat.SevenZip, ArchiveFormat.TarGz })
                 Add($"Compress to {Archives.Label(format)}", () => Await(() => ViewModel.CompressAsync(selection, format)), null, "");

@@ -55,10 +55,10 @@ public sealed class PreviewHost : HwndHost
         }, TaskScheduler.FromCurrentSynchronizationContext());
     }
 
-    public void Clear()
+    public Task Clear()
     {
         Interlocked.Increment(ref _generation);
-        _ = StaWorkerPool.Preview.Run(() =>
+        return StaWorkerPool.Preview.Run(() =>
         {
             _session?.Dispose();
             _session = null;

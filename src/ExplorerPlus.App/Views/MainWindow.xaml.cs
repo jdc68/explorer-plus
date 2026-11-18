@@ -43,6 +43,7 @@ public partial class MainWindow : Window
         _initialTargets = targets;
         _initialSelect = select;
         ViewModel = new MainViewModel(() => _hwnd);
+        ViewModel.InUseFound += OnInUseFound;
         DataContext = ViewModel;
         InitPane();
 
@@ -993,6 +994,9 @@ public partial class MainWindow : Window
 
     private static readonly HashSet<string> FileVerbs = new(StringComparer.OrdinalIgnoreCase) { "rename" };
 
+    // files and folders are deleted by Explorer+ itself, so the delete can be undone and a file in use is explained
+    private static readonly HashSet<string> DeleteVerb = new(StringComparer.OrdinalIgnoreCase) { "delete" };
+
     private const int CmdOpenNewTab = ShellContextMenu.FirstCustomId + 1;
     private const int CmdOpenNewWindow = ShellContextMenu.FirstCustomId + 2;
     private const int CmdPin = ShellContextMenu.FirstCustomId + 3;
@@ -1009,6 +1013,7 @@ public partial class MainWindow : Window
     private const int CmdOpenInOther = ShellContextMenu.FirstCustomId + 14;
     private const int CmdNewTag = ShellContextMenu.FirstCustomId + 15;
     private const int CmdRemoveFrequent = ShellContextMenu.FirstCustomId + 16;
+    private const int CmdWhatIsUsing = ShellContextMenu.FirstCustomId + 17;
     private const int CmdCompressBase = ShellContextMenu.FirstCustomId + 20; // + (int)ArchiveFormat
     private const int CmdTagBase = ShellContextMenu.FirstCustomId + 200;
     private const int CmdChoiceLimit = 50;
@@ -1091,7 +1096,8 @@ public partial class MainWindow : Window
         }
         AddM3Entries(custom, items);
 
-        var intercept = browsable.Count == items.Count ? FolderVerbs : FileVerbs;
+        IReadOnlyCollection<string> intercept = browsable.Count == items.Count ? FolderVerbs : FileVerbs;
+        if (items.All(i => i.Entry.Path is not null)) intercept = intercept.Concat(DeleteVerb).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var result = menu.Show(_hwnd, x, y, custom, intercept, extended: Keyboard.Modifiers.HasFlag(ModifierKeys.Shift), hide: MenuFilter);
         _ = HandleItemsMenuResult(result, items);
     }
@@ -1175,6 +1181,9 @@ public partial class MainWindow : Window
             case MenuResultKind.Custom when result.CustomId >= CmdTagBase && result.CustomId < CmdTagBase + CmdChoiceLimit:
                 if (Tags.Names.ElementAtOrDefault(result.CustomId - CmdTagBase) is { } tag) ToggleTag(TaggablePaths(items), tag);
                 break;
+            case MenuResultKind.Custom when result.CustomId == CmdWhatIsUsing:
+                ShowWhatIsUsing(items);
+                break;
             case MenuResultKind.Custom when result.CustomId == CmdOpenInOther:
                 await OpenInOtherPaneAsync(items[0]);
                 break;
@@ -1185,6 +1194,7 @@ public partial class MainWindow : Window
                 switch (result.Verb!.ToLowerInvariant())
                 {
                     case "rename": BeginRename(items[0]); break;
+                    case "delete": await ViewModel.DeleteAsync(items, permanent: Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)); break;
                     case "opennewwindow": await ViewModel.OpenItemsAsync(items, OpenTarget.NewWindow); break;
                     case "opennewtab": await ViewModel.OpenItemsAsync(items, OpenTarget.NewTab); break;
                     default: await ViewModel.OpenItemsAsync(items, OpenTarget.Here); break;
@@ -1223,6 +1233,7 @@ public partial class MainWindow : Window
             if (paths.All(Archives.IsExtractable))
                 custom.Add(new CustomMenuItem { Text = paths.Count == 1 ? "Extract here" : "Extract each here", Id = CmdExtract });
             if (paths.Count > 1) custom.Add(new CustomMenuItem { Text = $"Rename {paths.Count} items…\tF2", Id = CmdBatchRename });
+            custom.Add(new CustomMenuItem { Text = "What is using this?", Id = CmdWhatIsUsing });
         }
         if (TaggablePaths(items) is { Count: > 0 } taggable && taggable.Count == items.Count)
         {
@@ -1263,6 +1274,8 @@ public partial class MainWindow : Window
         }
         if (items.Any(i => i.Entry.RecentLink is not null))
             menu.Items.Add(MenuEntry("Remove from Recent", null, async () => await ViewModel.RemoveFromRecentAsync(items), null));
+        if (items.All(i => i.Entry.Path is not null))
+            menu.Items.Add(MenuEntry("What is using this?", null, () => ShowWhatIsUsing(items), null));
         menu.Items.Add(new Separator());
         menu.Items.Add(MenuEntry("Delete", "Delete", async () => await ViewModel.DeleteAsync(items, permanent: false), null));
         menu.IsOpen = true;

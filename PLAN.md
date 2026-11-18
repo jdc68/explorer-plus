@@ -2,13 +2,13 @@
 
 A fast, keyboard-friendly file manager for Windows 11, built for work and everyday use.
 
-## Status (17 Nov 2026)
+## Status (18 Nov 2026)
 
-- **Now: I16** "what is using this file?". Its "Decide with the user" lines are still open, so they are settled with the user before it is built.
-- **Then, in this order:** I17 recent changes, I18 big, old and empty finders, I19 flat view, I20 disk usage treemap, I21 drop shelf.
+- **Now: I17** recent changes. Its "Decide with the user" lines are still open, so they are settled with the user before it is built.
+- **Then, in this order:** I18 big, old and empty finders, I19 flat view, I20 disk usage treemap, I21 drop shelf.
 - **Backlog, only when the user asks:** I14, Save and Open dialogs ([#9](https://github.com/jdc68/explorer-plus/issues/9)).
 - **Postponed:** M7, remote locations and plugins.
-- **Done:** M1 to M6, I1 to I13, I15 (closed for now), I22, I23 (0.1.33), I24. What was built, the findings and the checks made are in [HISTORY.md](HISTORY.md). What is still open from them is in section 6, under "Open checks" and "Loose ends".
+- **Done:** M1 to M6, I1 to I13, I15 (closed for now), I16, I22, I23 (0.1.33), I24. What was built, the findings and the checks made are in [HISTORY.md](HISTORY.md). What is still open from them is in section 6, under "Open checks" and "Loose ends".
 
 How this file is kept:
 - This section is the only place that gives the order. Update it when a step starts or finishes, or when the user changes the order.
@@ -133,16 +133,13 @@ Speed comes from a hybrid:
 
 Hidden menu entries stay reachable with Shift+right-click, which shows the full, unfiltered menu.
 
+- **Files in use** (17 Nov 2026, I16): when a delete fails because an app has the file open, "Force delete" first asks that app to close (Restart Manager, so it can save) and only ends it after a second confirmation, then deletes again. It shows only after a failed delete, never as a menu entry of its own. There is no "Delete on next restart". Apps of other Windows users, apps running as administrator, services, Windows Explorer and Windows itself are named but never closed (no UAC prompt is offered for them).
+
 ## 6. Roadmap
 
 ### Now and next, in order
 
 From the 14 Nov 2026 brainstorm, in the order chosen with the user (not GitHub issues). What hurts every day comes first, then the features that reuse the index service, then the ones with their own UI. I15, the performance budget, came first in that list. Speed is the product's main promise, and these features can slow it down, so run `installer/perf.ps1` after any of them that touches the file list, loading or startup. Each spec is only a sketch.
-
-**I16: "what is using this file?"**
-- When delete, move, rename or replace fails because another process holds the file (`ERROR_SHARING_VIOLATION`, `ERROR_LOCK_VIOLATION`), say which process. The Restart Manager API (`RmStartSession`, `RmRegisterResources`, `RmGetList`) lists the applications that hold a file or the files under a folder, with no elevation for the user's own processes. Also an item-menu entry "What is using this?" for a selection, and a result list with the process name, id and a "Close" button that asks the app to quit (`RmShutdown`; never a kill without a second confirmation).
-- The shell's own dialog already says "in use" for `IFileOperation`; the new part is the name and the way out. Catch it where `FileOpLog` sees a failed result, so it works for copies and moves from the queue as well, and show it as a notice with "Show who" and "Try again".
-- Decide with the user: whether to offer a force-close of other users' or elevated processes (probably not), and whether to also offer "Delete on next restart" (`MoveFileEx` with `MOVEFILE_DELAY_UNTIL_REBOOT`, which needs admin rights).
 
 **I17: recent changes view (needs the index service).**
 - Everything modified or created in the last N minutes, hours or days, across all drives or below a folder, newest first, as a results tab (like instant search: location, size and date from the index, no disk access). It is the answer to "where did that download go" and "what did that installer touch".
@@ -215,6 +212,7 @@ Gathered from the finished steps; the step in brackets has the details in HISTOR
   - The app right after the service starts, before sizes are read [I4].
 - **Settings:** the Settings window's buttons [I2], and switching Light and Dark while a menu is in use [I1].
 - **Toolbar:** the Command palette and Settings buttons in a split window [I23].
+- **Files in use:** a real app with unsaved work (Word, Notepad) asked to close by Force delete, a folder open in a terminal, a failed move or copy from the queue, a failed rename, Delete from the native item menu (now Explorer+'s own delete, with undo), and the PDF or Office preview pane holding the file [I16].
 - **This PC and the sidebar:**
   - This PC with network drives and locations, a phone, an optical drive, and a USB stick plugged in and pulled while the page is open [I11].
   - Frequent folders: the right-click entries, the Settings checkbox, and a frequent folder on a share that goes offline [I12].
@@ -241,7 +239,7 @@ Known gaps left on purpose. Each one could become a step if the user wants it.
 ```
 src/ExplorerPlus.Interop       hand-written P/Invoke + [ComImport] shell interfaces: ShellInterfaces (IShellItem2,
                                IShellFolder, IContextMenu2/3, IFileOperation …), FileOperationSink, Preview, Search,
-                               ShellLink, ShellWindows, DragDrop, Imaging, Volumes
+                               ShellLink, ShellWindows, DragDrop, Imaging, Volumes, RestartManager
 src/ExplorerPlus.Indexing      no WPF, no shell: VolumeIndex (flat per-record arrays, parallel search, folder totals),
                                IndexQuery, VolumeReader (MFT enumeration + USN journal), MftReader (raw $MFT sizes and
                                times), IndexHost (volumes, impersonated search), IndexProtocol, IndexClient
@@ -253,19 +251,20 @@ src/ExplorerPlus.Core          no WPF
                                  HomeFeed, SearchLocation, IndexSearch, TagView, DuplicateFinder, ThisPc
                                actions: FileOperations, FileOpLog, ShellContextMenu, ShellClipboard, ShellDragDrop,
                                  ShellLauncher, LocationActions, Associations, LinkResolver, ShellNewTemplates,
-                                 Archives, BatchRename, FolderCompare, WindowsQuickAccess
+                                 Archives, BatchRename, FolderCompare, WindowsQuickAccess, FileLocks
                                data: PropertyReader, ThumbnailExtractor, PreviewHandlers, FolderSizeService,
                                  DriveService, GitStatus, FolderHistory, SizeFormat, NaturalComparer
   Navigation/                  PathParser, ExplorerCommandLine, FuzzyMatch
   Integration/                 DefaultFileManager, InheritedEnvironment
   Threading/                   StaWorkerPool
 src/ExplorerPlus.App           WPF, .NET 9 Fluent theme; Program (single instance before WPF), App
-  Views/                       MainWindow (+ .Tabs, .Panes, .Commands, .Columns, .DragDrop, .Perf), FileListView,
+  Views/                       MainWindow (+ .Tabs, .Panes, .Commands, .Columns, .DragDrop, .Perf, .InUse), FileListView,
                                VirtualizingWrapPanel, SmoothScroller, AddressBar, BreadcrumbPanel, PreviewHost,
                                HoverPreview + HoverPopup, QuickLookWindow, BatchRenameWindow, CompareWindow,
-                               SettingsWindow, PromptWindow; Themes/FileList.xaml
+                               InUseWindow, SettingsWindow, PromptWindow; Themes/FileList.xaml
   ViewModels/                  MainViewModel, TabViewModel, PaneViewModel, SidebarViewModel, SettingsViewModel,
-                               ItemViewModel, Columns, Grouping, ItemComparer, ContentViewRules, ViewMode, PaletteEntry
+                               ItemViewModel, Columns, Grouping, ItemComparer, ContentViewRules, ViewMode, PaletteEntry,
+                               InUseReport
   Services/                    AppSettings, AppPaths, SingleInstance, Background, FolderViewStore, IconCache,
                                ThumbnailService, PreviewLoader, FolderSizeWatcher, ShellChangeWatcher, UndoService,
                                TransferQueue, CutItems, Stars, Tags, Workspaces, QuickAccess, QuickAccessSync,
