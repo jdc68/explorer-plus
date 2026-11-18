@@ -11,7 +11,7 @@ public static class MftReader
     private const int ChunkSize = 4 << 20;
 
     // indexed by record number; size -1 and time 0 mean unknown
-    public sealed record Result(long[] Sizes, long[] Modified);
+    public sealed record Result(long[] Sizes, long[] Modified, long[] Created);
 
     public static unsafe Result Read(SafeFileHandle volume, CancellationToken ct)
     {
@@ -29,6 +29,7 @@ public static class MftReader
         var sizes = new long[count];
         Array.Fill(sizes, -1L);
         var modified = new long[count];
+        var created = new long[count];
 
         // record 0 is the $MFT itself, its data runs map the rest
         var first = new byte[Align(recordSize, (int)Math.Max(bytesPerSector, 512))];
@@ -49,18 +50,18 @@ public static class MftReader
                 var read = RandomAccess.Read(volume, buffer.AsSpan(0, length), offset);
                 if (read <= 0) break;
                 for (var at = 0; at + recordSize <= read && record < count; at += recordSize, record++)
-                    ParseRecord(buffer.AsSpan(at, recordSize), (int)record, sizes, modified);
+                    ParseRecord(buffer.AsSpan(at, recordSize), (int)record, sizes, modified, created);
                 offset += read;
                 remaining -= read;
             }
         }
-        return new Result(sizes, modified);
+        return new Result(sizes, modified, created);
     }
 
     private static int Align(int value, int to) => (value + to - 1) / to * to;
 
     // extension records count toward their base record
-    internal static void ParseRecord(Span<byte> record, int number, long[] sizes, long[] modified)
+    internal static void ParseRecord(Span<byte> record, int number, long[] sizes, long[] modified, long[] created)
     {
         if (record.Length < 64 || Read32(record, 0) != FileSignature) return;
         var flags = Read16(record, 0x16);
@@ -80,7 +81,11 @@ public static class MftReader
             if (type == AttrStandardInformation && !nonResident)
             {
                 var value = a + Read16(record, a + 0x14);
-                if (value + 16 <= record.Length) modified[target] = (long)Read64(record, value + 8);
+                if (value + 16 <= record.Length)
+                {
+                    created[target] = (long)Read64(record, value);
+                    modified[target] = (long)Read64(record, value + 8);
+                }
             }
             else if (type == AttrData && nameLength == 0)
             {

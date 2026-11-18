@@ -269,6 +269,16 @@ public partial class MainWindow
         catch (Exception ex) { ViewModel.ShowNotice(ex.Message); }
     }
 
+    // ================= Recent changes =================
+
+    // below the folder on screen, or on every drive
+    private async void ShowRecentChanges(bool here)
+    {
+        var folder = here && Tab?.Location is { IsFileSystemFolder: true, FileSystemPath: { } path } ? path : null;
+        try { await ViewModel.NavigateAsync(RecentChanges.Url(RecentSpan.Hour, folder), OpenTarget.NewTab); }
+        catch (Exception ex) { ViewModel.ShowNotice(ex.Message); }
+    }
+
     private static class Glyphs
     {
         public const string Tag = SidebarViewModel.TagGlyph;
@@ -330,6 +340,8 @@ public partial class MainWindow
         if (FolderForTools() is { } dupesIn)
             list.Add(new PaletteEntry("Find duplicate files", FindDuplicates, null, dupesIn, Glyphs.Duplicates));
         Add("Compare and sync folders…", CompareFolders, null, Glyphs.Compare);
+        Add("Recent changes…", () => ShowRecentChanges(here: false), null, SidebarViewModel.RecentGlyph);
+        if (inFolder) list.Add(new PaletteEntry("Recent changes in this folder", () => ShowRecentChanges(here: true), null, tab!.Location!.FileSystemPath, SidebarViewModel.RecentGlyph));
         if (paths.Count == selection.Count && paths.Count > 0)
             Add("What is using this?", () => ShowWhatIsUsing(selection), null, "");
         if (paths.Count == selection.Count && paths.Count > 0)

@@ -18,6 +18,9 @@ public static class IndexServiceSetup
 
     public static string AppVersion => IndexProtocol.Version;
 
+    // after an install or removal
+    public static event Action? Changed;
+
     /// <summary>Runs the service exe elevated with <c>--install</c> or <c>--uninstall</c>. Returns null on success, or what went wrong.</summary>
     public static async Task<string?> RunAsync(bool install)
     {
@@ -45,6 +48,7 @@ public static class IndexServiceSetup
         finally
         {
             IndexSearch.Invalidate();
+            Changed?.Invoke();
         }
     }
 

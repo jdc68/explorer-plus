@@ -94,7 +94,7 @@ public sealed class VolumeReader : IDisposable
             var sw = Stopwatch.StartNew();
             var mft = MftReader.Read(volume, ct);
             index.EnterWrite();
-            try { index.ApplySizes(mft.Sizes, mft.Modified); }
+            try { index.ApplySizes(mft.Sizes, mft.Modified, mft.Created); }
             finally { index.ExitWrite(); }
             Log?.Invoke($"{Root}: read sizes of {mft.Sizes.Length:N0} records in {sw.ElapsedMilliseconds:N0} ms");
         }
@@ -240,21 +240,21 @@ public sealed class VolumeReader : IDisposable
     // the journal says what changed, not the new size, so ask the file itself
     private static void RefreshSizes(VolumeIndex index, SafeFileHandle volumeHint, HashSet<ulong> references)
     {
-        var infos = new List<(ulong Reference, long Size, long Modified)>(references.Count);
+        var infos = new List<(ulong Reference, long Size, long Modified, long Created)>(references.Count);
         foreach (var reference in references)
         {
             var id = new FILE_ID_DESCRIPTOR { Size = 24, Type = 0, FileId = (long)reference };
             using var handle = VolumeNative.OpenFileById(volumeHint, ref id, VolumeNative.FILE_READ_ATTRIBUTES,
                 VolumeNative.FILE_SHARE_READ | VolumeNative.FILE_SHARE_WRITE | VolumeNative.FILE_SHARE_DELETE, IntPtr.Zero, VolumeNative.FILE_FLAG_BACKUP_SEMANTICS);
             if (handle.IsInvalid || !VolumeNative.GetFileInformationByHandle(handle, out var info)) continue;
-            infos.Add((reference, ((long)info.FileSizeHigh << 32) | info.FileSizeLow, info.LastWriteTime));
+            infos.Add((reference, ((long)info.FileSizeHigh << 32) | info.FileSizeLow, info.LastWriteTime, info.CreationTime));
         }
         references.Clear();
         if (infos.Count == 0) return;
         index.EnterWrite();
         try
         {
-            foreach (var (reference, size, modified) in infos) index.SetFileInfo(reference, size, modified);
+            foreach (var (reference, size, modified, created) in infos) index.SetFileInfo(reference, size, modified, created);
         }
         finally { index.ExitWrite(); }
     }

@@ -41,6 +41,13 @@ public sealed class ShellLocation
     public string? DuplicatesIn { get; init; }
 
     public bool IsDuplicates => DuplicatesIn is not null;
+
+    // recent changes only: how far back, and whether AppData is listed too
+    public RecentSpan? RecentSpan { get; init; }
+    public bool RecentIncludesAppData { get; init; }
+    public IndexSearchInfo? RecentResults { get; init; }
+
+    public bool IsRecentChanges => RecentSpan is not null;
     public bool IsHome => Is(Known.Home);
     public bool IsRecycleBin => Is(Known.RecycleBin);
     public bool IsNetwork => Is(Known.Network);
@@ -105,6 +112,7 @@ public sealed class ShellLocation
             if (IndexSearch.IsUrl(parsingName)) return IndexSearch.FromUrl(parsingName);
             if (TagView.IsUrl(parsingName)) return TagView.FromUrl(parsingName);
             if (DuplicateFinder.IsUrl(parsingName)) return DuplicateFinder.FromUrl(parsingName);
+            if (RecentChanges.IsUrl(parsingName)) return RecentChanges.FromUrl(parsingName);
             var pidl = ShellNative.TryParse(parsingName);
             if (pidl is null) return null;
             var loc = FromPidl(pidl);

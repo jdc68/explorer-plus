@@ -90,25 +90,45 @@ public sealed class IndexHost : IDisposable
     {
         var query = IndexQuery.Parse(request.Query);
         if (query.IsEmpty) return new SearchResponse(SearchStatus.Ok, 0, [], false);
+        var options = new IndexSearchOptions(request.IncludeHidden, request.IncludeProtected);
+        return Run(request.Scope, request.Limit, $"search: {request.Query}",
+            (index, scope, limit, canList) => index.Search(query, options, scope, limit, canList, ct));
+    }
+
+    /// <summary>What changed since the request's time, newest first. Call it impersonating the client, like <see cref="Search"/>.</summary>
+    public SearchResponse Recent(RecentRequest request, CancellationToken ct = default)
+    {
+        var options = new IndexSearchOptions(request.IncludeHidden, request.IncludeProtected, request.IncludeAppData);
+        // a little ahead of now, for clocks that differ slightly; further out is a wrong date that would always top the list
+        var until = DateTime.UtcNow.AddHours(1).ToFileTimeUtc();
+        return Run(request.Scope, request.Limit, "recent changes",
+            (index, scope, limit, canList) => index.Recent(request.Since, until, options, scope, limit, canList, ct),
+            needsTimes: true);
+    }
+
+    // runs a query on every volume, or inside scope, with the client's access checks; the best keys come first
+    private SearchResponse Run(string? scopePath, int requestedLimit, string what,
+        Func<VolumeIndex, int?, int, Func<int, string, bool>, (List<IndexHit> Hits, int Total)> query, bool needsTimes = false)
+    {
         var readers = Readers;
         var scanning = readers.Any(r => r.Index is null && r.State == VolumeState.Scanning);
-        var options = new IndexSearchOptions(request.IncludeHidden, request.IncludeProtected);
-        var limit = Math.Clamp(request.Limit, 1, 100_000);
+        var limit = Math.Clamp(requestedLimit, 1, 100_000);
 
         List<(VolumeIndex Index, int? Scope)> targets = [];
-        if (string.IsNullOrEmpty(request.Scope))
+        if (string.IsNullOrEmpty(scopePath))
         {
             targets.AddRange(readers.Where(r => r.Index is not null).Select(r => (r.Index!, (int?)null)));
         }
         else
         {
-            if (!TryOpenScope(request.Scope, out var serial, out var reference)) return new SearchResponse(SearchStatus.NotIndexed, 0, [], scanning);
+            if (!TryOpenScope(scopePath, out var serial, out var reference)) return new SearchResponse(SearchStatus.NotIndexed, 0, [], scanning);
             var index = readers.Select(r => r.Index).FirstOrDefault(i => i is not null && i.SerialNumber == serial);
             if (index is null) return new SearchResponse(scanning ? SearchStatus.Ok : SearchStatus.NotIndexed, 0, [], scanning);
             var record = index.Find(reference);
             if (record is null) return new SearchResponse(SearchStatus.NotIndexed, 0, [], scanning);
             targets.Add((index, record));
         }
+        if (needsTimes && targets.Any(t => !t.Index.HasSizes)) scanning = true;
 
         var user = WindowsIdentity.GetCurrent(ifImpersonating: true)?.User?.Value ?? "";
         if (_access.Count > AccessCacheLimit) _access.Clear();
@@ -120,7 +140,7 @@ public sealed class IndexHost : IDisposable
         foreach (var (index, scope) in targets)
         {
             var serial = index.SerialNumber;
-            var (found, count) = index.Search(query, options, scope, limit, (record, folder) =>
+            var (found, count) = query(index, scope, limit, (record, folder) =>
             {
                 var key = (user, serial, record);
                 if (_access.TryGetValue(key, out var known) && known.Expires > now) return known.Allowed;
@@ -128,16 +148,17 @@ public sealed class IndexHost : IDisposable
                 var allowed = CanList(folder);
                 _access[key] = (allowed, now + (long)AccessLifetime.TotalMilliseconds);
                 return allowed;
-            }, ct);
+            });
             hits.AddRange(found);
             total += count;
         }
         if (sw.ElapsedMilliseconds > 1000)
-            Log?.Invoke($"Slow search ({sw.ElapsedMilliseconds:N0} ms, {total:N0} matches, {opened:N0} folders checked): {request.Query}");
+            Log?.Invoke($"Slow {what} ({sw.ElapsedMilliseconds:N0} ms, {total:N0} matches, {opened:N0} folders checked)");
         hits.Sort((a, b) => a.Key.CompareTo(b.Key));
         if (hits.Count > limit) hits.RemoveRange(limit, hits.Count - limit);
-        return new SearchResponse(SearchStatus.Ok, total, hits.Select(h => new SearchHit(h.Path, h.Attributes, h.Size, h.Modified)).ToList(), scanning);
+        return new SearchResponse(SearchStatus.Ok, total, hits.Select(h => new SearchHit(h.Path, h.Attributes, h.Size, h.Modified, h.Created)).ToList(), scanning);
     }
+
 
     // -1 when unknown or the caller may not list the folder; call it impersonating the client, like Search
     public long[] FolderSizes(IReadOnlyList<string> paths)

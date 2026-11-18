@@ -27,7 +27,7 @@ public sealed class ShellWindowRegistration : IDisposable
     public void Navigated(ShellLocation? location)
     {
         // app-made locations borrow This PC's PIDL
-        _site.Location = location is null || location.IsTagView || location.IsDuplicates || location.IsIndexSearch ? null : location;
+        _site.Location = location is null || location.IsTagView || location.IsDuplicates || location.IsIndexSearch || location.IsRecentChanges ? null : location;
         Enqueue(Sync);
     }
 

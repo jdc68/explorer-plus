@@ -2,12 +2,12 @@ using System.Buffers;
 
 namespace ExplorerPlus.Indexing;
 
-public readonly record struct IndexHit(string Path, uint Attributes, long Key, long Size = -1, long Modified = 0)
+public readonly record struct IndexHit(string Path, uint Attributes, long Key, long Size = -1, long Modified = 0, long Created = 0)
 {
     public bool IsFolder => (Attributes & VolumeIndex.DirectoryAttribute) != 0;
 }
 
-public sealed record IndexSearchOptions(bool IncludeHidden = true, bool IncludeProtected = false);
+public sealed record IndexSearchOptions(bool IncludeHidden = true, bool IncludeProtected = false, bool IncludeAppData = true);
 
 /// <summary>
 /// Every file and folder name on one NTFS volume, kept in flat arrays indexed by MFT record number (the low 48 bits
@@ -34,6 +34,7 @@ public sealed class VolumeIndex
     private byte[] _nameLength;
     private long[] _size; // a file's own size; a folder's total of everything below it
     private long[] _modified;
+    private long[] _created;
     private char[] _names;
     private int _namesUsed;
     private int _namesWasted;
@@ -57,6 +58,7 @@ public sealed class VolumeIndex
         _nameLength = new byte[capacity];
         _size = new long[capacity];
         _modified = new long[capacity];
+        _created = new long[capacity];
         _names = new char[Math.Max(1024, capacity * 12)];
         _parent[RootRecord] = Top;
         _sequence[RootRecord] = Sequence(rootReference);
@@ -73,7 +75,7 @@ public sealed class VolumeIndex
     public int Count => Volatile.Read(ref _count);
 
     /// <summary>Approximate memory the index holds, in bytes.</summary>
-    public long MemoryBytes => (long)_parent.Length * 31 + (long)_names.Length * 2;
+    public long MemoryBytes => (long)_parent.Length * 39 + (long)_names.Length * 2;
 
     public static int Record(ulong reference) => (int)Math.Min(reference & 0xFFFF_FFFF_FFFF, int.MaxValue);
     private static ushort Sequence(ulong reference) => (ushort)(reference >> 48);
@@ -100,6 +102,7 @@ public sealed class VolumeIndex
             if (HasSizes) AddToAncestors(_parent[r], -_size[r]);
             _size[r] = 0;
             _modified[r] = 0;
+            _created[r] = 0;
         }
         else if (present && _parent[r] != parent && HasSizes)
         {
@@ -111,6 +114,7 @@ public sealed class VolumeIndex
         {
             _size[r] = 0;
             _modified[r] = 0;
+            _created[r] = 0;
         }
         if (present && name.SequenceEqual(NameOf(r)))
         {
@@ -165,6 +169,7 @@ public sealed class VolumeIndex
         Array.Resize(ref _nameLength, size);
         Array.Resize(ref _size, size);
         Array.Resize(ref _modified, size);
+        Array.Resize(ref _created, size);
     }
 
     private void AddToAncestors(int folder, long delta)
@@ -178,15 +183,16 @@ public sealed class VolumeIndex
     }
 
     // call inside a write
-    public void ApplySizes(long[] sizes, long[] modified)
+    public void ApplySizes(long[] sizes, long[] modified, long[] created)
     {
-        var n = Math.Min(_parent.Length, Math.Min(sizes.Length, modified.Length));
+        var n = Math.Min(_parent.Length, Math.Min(sizes.Length, Math.Min(modified.Length, created.Length)));
         for (var r = 0; r < _parent.Length; r++)
         {
             if (_parent[r] == Absent) continue;
             var isFile = (_attributes[r] & DirectoryAttribute) == 0;
             _size[r] = isFile && r < n ? Math.Max(0, sizes[r]) : 0;
             _modified[r] = r < n ? modified[r] : 0;
+            _created[r] = r < n ? created[r] : 0;
         }
         for (var r = 0; r < _parent.Length; r++)
             if (_parent[r] >= 0 && (_attributes[r] & DirectoryAttribute) == 0 && _size[r] != 0) AddToAncestors(_parent[r], _size[r]);
@@ -194,11 +200,12 @@ public sealed class VolumeIndex
     }
 
     // call inside a write
-    public void SetFileInfo(ulong reference, long size, long modified)
+    public void SetFileInfo(ulong reference, long size, long modified, long created)
     {
         var r = Record(reference);
         if (!HasSizes || r >= _parent.Length || _parent[r] == Absent || _sequence[r] != Sequence(reference)) return;
         _modified[r] = modified;
+        _created[r] = created;
         if ((_attributes[r] & DirectoryAttribute) != 0) return;
         var delta = size - _size[r];
         _size[r] = size;
@@ -324,32 +331,7 @@ public sealed class VolumeIndex
                 at += part.Count;
             }
             Array.Sort(keys);
-
-            var hits = new List<IndexHit>(Math.Min(limit, total));
-            var allowed = new Dictionary<int, bool>();
-            var buffer = new char[MaxDepth * 64];
-            foreach (var key in keys)
-            {
-                if (hits.Count >= limit) break;
-                ct.ThrowIfCancellationRequested();
-                var r = (int)(key & 0x7FFF_FFFF);
-                var length = BuildPath(r, buffer);
-                if (length < 0) continue;
-                var parent = _parent[r];
-                if (canList is not null)
-                {
-                    if (!allowed.TryGetValue(parent, out var ok))
-                    {
-                        var cut = Math.Max(Root.Length, Array.LastIndexOf(buffer, '\\', length - 1));
-                        allowed[parent] = ok = canList(parent, new string(buffer, 0, cut));
-                    }
-                    if (!ok) continue;
-                }
-                hits.Add(HasSizes
-                    ? new IndexHit(new string(buffer, 0, length), _attributes[r], key, _size[r], _modified[r])
-                    : new IndexHit(new string(buffer, 0, length), _attributes[r], key));
-            }
-            return (hits, total);
+            return (Collect(keys.Select(k => (k, (int)(k & 0x7FFF_FFFF))), limit, canList, ct), total);
         }
         finally
         {
@@ -358,11 +340,79 @@ public sealed class VolumeIndex
         }
     }
 
+    /// <summary>
+    /// Files modified or created, and folders created, between <paramref name="since"/> and <paramref name="until"/>
+    /// (FILETIMEs), newest first. A hit's key is minus that time. Empty until the times have been read.
+    /// </summary>
+    public (List<IndexHit> Hits, int Total) Recent(long since, long until, IndexSearchOptions options, int? scopeRecord, int limit,
+        Func<int, string, bool>? canList = null, CancellationToken ct = default)
+    {
+        _lock.EnterReadLock();
+        var state = ArrayPool<byte>.Shared.Rent(_parent.Length);
+        try
+        {
+            if (!HasSizes) return ([], 0);
+            var scope = scopeRecord ?? RootRecord;
+            Array.Clear(state, 0, _parent.Length);
+            state[scope] = InScope;
+            var parts = new List<List<(long, int)>>();
+            var chunks = (_parent.Length + ChunkSize - 1) / ChunkSize;
+            Parallel.For(0, chunks, new ParallelOptions { CancellationToken = ct },
+                () => new Worker(),
+                (chunk, _, worker) =>
+                {
+                    var end = Math.Min(_parent.Length, (chunk + 1) * ChunkSize);
+                    for (var r = chunk * ChunkSize; r < end; r++) TestRecent(r, scope, since, until, options, state, worker);
+                    return worker;
+                },
+                worker => { lock (parts) parts.Add(worker.Changes); });
+
+            var found = parts.SelectMany(p => p).ToArray();
+            Array.Sort(found);
+            return (Collect(found, limit, canList, ct), found.Length);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(state);
+            _lock.ExitReadLock();
+        }
+    }
+
+    // full paths of the records in this order, without those in folders canList refuses; call inside a read
+    private List<IndexHit> Collect(IEnumerable<(long Key, int Record)> ordered, int limit, Func<int, string, bool>? canList, CancellationToken ct)
+    {
+        var hits = new List<IndexHit>();
+        var allowed = new Dictionary<int, bool>();
+        var buffer = new char[MaxDepth * 64];
+        foreach (var (key, r) in ordered)
+        {
+            if (hits.Count >= limit) break;
+            ct.ThrowIfCancellationRequested();
+            var length = BuildPath(r, buffer);
+            if (length < 0) continue;
+            var parent = _parent[r];
+            if (canList is not null)
+            {
+                if (!allowed.TryGetValue(parent, out var ok))
+                {
+                    var cut = Math.Max(Root.Length, Array.LastIndexOf(buffer, '\\', length - 1));
+                    allowed[parent] = ok = canList(parent, new string(buffer, 0, cut));
+                }
+                if (!ok) continue;
+            }
+            hits.Add(HasSizes
+                ? new IndexHit(new string(buffer, 0, length), _attributes[r], key, _size[r], _modified[r], _created[r])
+                : new IndexHit(new string(buffer, 0, length), _attributes[r], key));
+        }
+        return hits;
+    }
+
     private const byte InScope = 1, OutOfScope = 2;
 
     private sealed class Worker
     {
         public readonly List<long> Keys = [];
+        public readonly List<(long, int)> Changes = [];
         public readonly char[] Path = new char[MaxDepth * 64];
         public readonly int[] Stack = new int[MaxDepth];
     }
@@ -383,6 +433,19 @@ public sealed class VolumeIndex
         // Best first: rank, then folders before files, then shorter names.
         var isFile = (attributes & DirectoryAttribute) == 0 ? 1L : 0L;
         worker.Keys.Add(((long)rank << 56) | (isFile << 48) | ((long)_nameLength[r] << 32) | (uint)r);
+    }
+
+    private void TestRecent(int r, int scope, long since, long until, IndexSearchOptions options, byte[] state, Worker worker)
+    {
+        var parent = _parent[r];
+        if (parent < 0 || r == scope) return;
+        var attributes = _attributes[r];
+        if (!Visible(attributes, options)) return;
+        // a folder's modified time moves with every change inside it, so only its creation counts
+        var changed = (attributes & DirectoryAttribute) != 0 ? _created[r] : Math.Max(_modified[r], _created[r]);
+        if (changed < since || changed > until) return;
+        if (Place(parent, state, options, worker.Stack) != InScope) return;
+        worker.Changes.Add((-changed, r));
     }
 
     private static bool Visible(uint attributes, IndexSearchOptions options)
@@ -406,7 +469,8 @@ public sealed class VolumeIndex
             if (d < 0 || d >= _parent.Length) { result = OutOfScope; break; }
             var known = Volatile.Read(ref state[d]);
             if (known != 0) { result = known; break; }
-            if (d == RootRecord || _parent[d] < 0 || depth == stack.Length || !Visible(_attributes[d], options) || IsExcludedFolder(d))
+            if (d == RootRecord || _parent[d] < 0 || depth == stack.Length || !Visible(_attributes[d], options) || IsExcludedFolder(d) ||
+                (!options.IncludeAppData && NameOf(d).Equals("AppData", StringComparison.OrdinalIgnoreCase)))
             {
                 result = OutOfScope;
                 stack[depth < stack.Length ? depth++ : depth - 1] = d;

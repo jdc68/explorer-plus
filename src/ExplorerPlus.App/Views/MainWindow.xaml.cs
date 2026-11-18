@@ -562,6 +562,20 @@ public partial class MainWindow : Window
     private void OnSettingsClick(object sender, RoutedEventArgs e) => ShowSettings();
     private void OnStarClick(object sender, RoutedEventArgs e) => ViewModel.ToggleStar(Selection);
     private void OnEmptyRecycleBinClick(object sender, RoutedEventArgs e) => ViewModel.EmptyRecycleBin();
+
+    private async void OnRecentSpanClick(object sender, RoutedEventArgs e)
+    {
+        if (Tab is not { } tab || sender is not FrameworkElement { Tag: string name } || !Enum.TryParse<RecentSpan>(name, out var span)) return;
+        try { await tab.ShowRecentAsync(span, tab.RecentIncludesAppData); }
+        catch (Exception ex) { ViewModel.ShowNotice(ex.Message); }
+    }
+
+    private async void OnRecentAppDataClick(object sender, RoutedEventArgs e)
+    {
+        if (Tab is not { RecentSpan: { } span } tab) return;
+        try { await tab.ShowRecentAsync(span, !tab.RecentIncludesAppData); }
+        catch (Exception ex) { ViewModel.ShowNotice(ex.Message); }
+    }
     private void OnRestoreAllClick(object sender, RoutedEventArgs e) => ViewModel.Restore(FileList.Items.Cast<ItemViewModel>().ToList());
 
     private void OnRestoreSelectedClick(object sender, RoutedEventArgs e)
@@ -656,8 +670,9 @@ public partial class MainWindow : Window
         menu.Items.Add(TagsMenu(Selection));
         menu.Items.Add(MenuEntry("Find duplicate files", null, FindDuplicates, "\uE8C8"));
         menu.Items.Add(MenuEntry("Compare and sync folders…", null, CompareFolders, "\uE8AB"));
+        menu.Items.Add(MenuEntry("Recent changes", null, () => ShowRecentChanges(here: false), SidebarViewModel.RecentGlyph));
         menu.Items.Add(new Separator());
-        menu.Items.Add(MenuEntry("Map network drive…", null, ViewModel.MapNetworkDrive, "\uE8CE"));
+        menu.Items.Add(MenuEntry("Map network drive…", null, ViewModel.MapNetworkDrive,"\uE8CE"));
         menu.Items.Add(MenuEntry("Disconnect network drive…", null, ViewModel.DisconnectNetworkDrive, "\uE8CD"));
         menu.Items.Add(MenuEntry("Empty Recycle Bin", null, ViewModel.EmptyRecycleBin, "\uE74D"));
         menu.Items.Add(new Separator());

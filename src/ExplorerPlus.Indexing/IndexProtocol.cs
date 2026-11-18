@@ -20,8 +20,11 @@ public sealed record SearchRequest(string Query, string? Scope, int Limit, bool 
 
 public sealed record FolderSizesRequest(List<string> Paths) : IndexRequest;
 
+/// <summary>What changed since <paramref name="Since"/> (a FILETIME), newest first; answered with a <see cref="SearchResponse"/>.</summary>
+public sealed record RecentRequest(string? Scope, long Since, int Limit, bool IncludeHidden, bool IncludeProtected, bool IncludeAppData) : IndexRequest;
+
 // Size -1 and Modified 0 mean unknown (sizes still being read)
-public sealed record SearchHit(string Path, uint Attributes, long Size = -1, long Modified = 0)
+public sealed record SearchHit(string Path, uint Attributes, long Size = -1, long Modified = 0, long Created = 0)
 {
     public bool IsFolder => (Attributes & VolumeIndex.DirectoryAttribute) != 0;
 }
@@ -32,7 +35,11 @@ public sealed record SearchResponse(SearchStatus Status, int Total, List<SearchH
 
 public sealed record VolumeStatus(string Root, VolumeState State, int Count, string? Error, bool HasSizes = false);
 
-public sealed record StatusResponse(string Version, List<VolumeStatus> Volumes);
+/// <param name="Protocol">The requests the service understands; 2 for a service from before this field.</param>
+public sealed record StatusResponse(string Version, List<VolumeStatus> Volumes, int Protocol = IndexProtocol.ProtocolVersion)
+{
+    public bool Speaks => Protocol == IndexProtocol.ProtocolVersion;
+}
 
 /// <summary>
 /// Messages between Explorer+ and the index service on <see cref="PipeName"/>: each is an Int32 length followed by
@@ -41,14 +48,17 @@ public sealed record StatusResponse(string Version, List<VolumeStatus> Volumes);
 public static class IndexProtocol
 {
     public const string PipeName = "ExplorerPlus.Index";
-    public const int ProtocolVersion = 2;
+    public const int ProtocolVersion = 3;
+
+    // status requests keep the first version's number, so an older service still says which version it is
+    private const int StatusVersion = 2;
     public const int MaxFolderSizes = 10_000;
     public const int MaxMessage = 64 << 20;
     public const int MaxQueryLength = 2048;
 
     public static string Version => typeof(IndexProtocol).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
 
-    private const byte KindSearch = 1, KindStatus = 2, KindFolderSizes = 3;
+    private const byte KindSearch = 1, KindStatus = 2, KindFolderSizes = 3, KindRecent = 4;
 
     public static byte[] EncodeSearch(SearchRequest request) => Encode(w =>
     {
@@ -61,9 +71,21 @@ public static class IndexProtocol
         w.Write(request.IncludeProtected);
     });
 
-    public static byte[] EncodeStatusRequest() => Encode(w =>
+    public static byte[] EncodeRecent(RecentRequest request) => Encode(w =>
     {
         w.Write(ProtocolVersion);
+        w.Write(KindRecent);
+        w.Write(request.Scope ?? "");
+        w.Write(request.Since);
+        w.Write(request.Limit);
+        w.Write(request.IncludeHidden);
+        w.Write(request.IncludeProtected);
+        w.Write(request.IncludeAppData);
+    });
+
+    public static byte[] EncodeStatusRequest() => Encode(w =>
+    {
+        w.Write(StatusVersion);
         w.Write(KindStatus);
     });
 
@@ -79,9 +101,16 @@ public static class IndexProtocol
     public static IndexRequest DecodeRequest(byte[] message)
     {
         using var r = Reader(message);
-        if (r.ReadInt32() != ProtocolVersion) throw new InvalidDataException("Unsupported protocol version.");
+        var version = r.ReadInt32();
         var kind = r.ReadByte();
-        if (kind == KindStatus) return new StatusRequest();
+        if (kind == KindStatus && version >= StatusVersion) return new StatusRequest();
+        if (version != ProtocolVersion) throw new InvalidDataException("Unsupported protocol version.");
+        if (kind == KindRecent)
+        {
+            var scopePath = r.ReadString();
+            if (scopePath.Length > 32767) throw new InvalidDataException("Request too long.");
+            return new RecentRequest(scopePath.Length == 0 ? null : scopePath, r.ReadInt64(), r.ReadInt32(), r.ReadBoolean(), r.ReadBoolean(), r.ReadBoolean());
+        }
         if (kind == KindFolderSizes)
         {
             var count = r.ReadInt32();
@@ -114,6 +143,7 @@ public static class IndexProtocol
             w.Write(hit.Attributes);
             w.Write(hit.Size);
             w.Write(hit.Modified);
+            w.Write(hit.Created);
         }
     });
 
@@ -125,7 +155,8 @@ public static class IndexProtocol
         var scanning = r.ReadBoolean();
         var count = r.ReadInt32();
         var hits = new List<SearchHit>(Math.Min(count, 100_000));
-        for (var i = 0; i < count; i++) hits.Add(new SearchHit(r.ReadString(), r.ReadUInt32(), r.ReadInt64(), r.ReadInt64()));
+        for (var i = 0; i < count; i++) hits.Add(new SearchHit(r.ReadString(), r.ReadUInt32(), r.ReadInt64(), r.ReadInt64(), r.ReadInt64()));
+
         return new SearchResponse(status, total, hits, scanning);
     }
 
@@ -141,6 +172,7 @@ public static class IndexProtocol
             w.Write(v.Error ?? "");
             w.Write(v.HasSizes);
         }
+        w.Write(response.Protocol);
     });
 
     public static byte[] EncodeFolderSizesResponse(long[] sizes) => Encode(w =>
@@ -173,7 +205,9 @@ public static class IndexProtocol
             var error = r.ReadString();
             volumes.Add(new VolumeStatus(root, state, items, error.Length == 0 ? null : error, r.ReadBoolean()));
         }
-        return new StatusResponse(version, volumes);
+        var protocol = r.BaseStream.Position < r.BaseStream.Length ? r.ReadInt32() : StatusVersion;
+        return new StatusResponse(version, volumes, protocol);
+
     }
 
     public static async Task WriteMessageAsync(Stream stream, byte[] message, CancellationToken ct)

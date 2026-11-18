@@ -16,6 +16,7 @@
             <views:NullToVisibilityConverter x:Key="NullToVis" />
             <views:EmptyStringToVisibilityConverter x:Key="EmptyToVis" />
             <views:NonEmptyStringToVisibilityConverter x:Key="NonEmptyToVis" />
+            <views:NameEqualsConverter x:Key="NameEquals" />
 
             <!-- Flat icon button used in the navigation and command bars. -->
             <Style x:Key="IconButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">

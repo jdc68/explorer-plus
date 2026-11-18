@@ -10,8 +10,10 @@ public sealed class IndexSearchInfo
     public volatile int Count;
     public volatile bool Scanning;
 
+    public int Limit { get; init; } = IndexSearch.Limit;
+
     /// <summary>The service had more matches than it returned (before its access check).</summary>
-    public bool Truncated => Total > Count && Count >= IndexSearch.Limit;
+    public bool Truncated => Total > Count && Count >= Limit;
 }
 
 /// <summary>
@@ -76,7 +78,8 @@ public static partial class IndexSearch
         if (scope is null || scope.IsSearch) return false;
         if (!scope.IsThisPC && scope.FileSystemPath is not { Length: >= 3 } path) return false;
         var status = await GetStatusAsync().ConfigureAwait(false);
-        if (status is null) return false;
+        // an older service would turn the search down, so Windows Search does it until the service is updated
+        if (status is not { Speaks: true }) return false;
         if (scope.IsThisPC) return status.Volumes.Count > 0;
         var root = Path.GetPathRoot(scope.FileSystemPath!);
         return status.Volumes.Any(v => string.Equals(v.Root, root, StringComparison.OrdinalIgnoreCase));
@@ -149,7 +152,7 @@ public static partial class IndexSearch
             foreach (var hit in hits)
             {
                 var entry = hit.Size >= 0 && hit.Modified > 0
-                    ? FastFolderEnumerator.FromIndex(hit.Path, hit.Attributes, hit.Size, hit.Modified)
+                    ? FastFolderEnumerator.FromIndex(hit.Path, hit.Attributes, hit.Size, hit.Modified, hit.Created)
                     : statted!.GetValueOrDefault(hit.Path);
                 if (entry is not null) yield return entry;
             }
@@ -167,7 +170,7 @@ public static partial class IndexSearch
         // a cached status from while the service was still reading sizes would send every folder to the slow walk
         if (status is not null && !HasSizesFor(status, paths) && paths.Any(p => SizesComing(status, p)))
             status = await GetStatusAsync(fresh: true, ct: ct).ConfigureAwait(false);
-        if (status is null || !HasSizesFor(status, paths)) return null;
+        if (status is not { Speaks: true } || !HasSizesFor(status, paths)) return null;
         return await IndexClient.GetFolderSizesAsync(paths, ct).ConfigureAwait(false);
     }
 

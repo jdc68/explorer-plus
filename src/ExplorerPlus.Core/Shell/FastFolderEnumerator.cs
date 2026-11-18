@@ -49,7 +49,7 @@ public static class FastFolderEnumerator
     }
 
     // for the index service's hits, which carry size and time, so no disk access is needed
-    public static FolderEntry? FromIndex(string path, uint attrs, long size, long modifiedFileTime)
+    public static FolderEntry? FromIndex(string path, uint attrs, long size, long modifiedFileTime, long createdFileTime = 0)
     {
         var slash = path.LastIndexOf('\\');
         if (slash <= 0 || slash == path.Length - 1) return null;
@@ -67,6 +67,7 @@ public static class FastFolderEnumerator
             Size = isDir ? -1 : size,
             KnownFolderSize = isDir && size >= 0 ? size : null,
             Modified = FromFileTime(modifiedFileTime),
+            Created = FromFileTime(createdFileTime),
             TypeName = typeName,
             IconIndex = icon,
             NeedsRealIcon = isDir ? (attrs & (FileAttr.READONLY | FileAttr.SYSTEM)) != 0 : ShellInfoCache.HasPerFileIcon(ext),

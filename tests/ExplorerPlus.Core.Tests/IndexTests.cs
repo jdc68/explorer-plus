@@ -184,11 +184,14 @@ public class IndexTests
         var request = new SearchRequest("report *.pdf", @"C:\Users", 500, true, false);
         Assert.Equal(request, IndexProtocol.DecodeRequest(IndexProtocol.EncodeSearch(request)));
         Assert.IsType<StatusRequest>(IndexProtocol.DecodeRequest(IndexProtocol.EncodeStatusRequest()));
+        var recent = new RecentRequest(@"C:\Users", 133_000_000_000_000_000, 10_000, true, false, true);
+        Assert.Equal(recent, IndexProtocol.DecodeRequest(IndexProtocol.EncodeRecent(recent)));
+        Assert.Equal(recent with { Scope = null }, IndexProtocol.DecodeRequest(IndexProtocol.EncodeRecent(recent with { Scope = null })));
         var folders = Assert.IsType<FolderSizesRequest>(IndexProtocol.DecodeRequest(IndexProtocol.EncodeFolderSizes([@"C:\Users", @"D:\"])));
         Assert.Equal([@"C:\Users", @"D:\"], folders.Paths);
         Assert.Equal([5L, -1L], IndexProtocol.DecodeFolderSizesResponse(IndexProtocol.EncodeFolderSizesResponse([5, -1])));
 
-        var response = new SearchResponse(SearchStatus.Ok, 7, [new(@"C:\a.txt", Normal, 12, 34), new(@"C:\b", Dir)], true);
+        var response = new SearchResponse(SearchStatus.Ok, 7, [new(@"C:\a.txt", Normal, 12, 34, 56), new(@"C:\b", Dir)], true);
         var back = IndexProtocol.DecodeSearchResponse(IndexProtocol.EncodeSearchResponse(response));
         Assert.Equal(response.Hits, back.Hits);
         Assert.Equal((7, true), (back.Total, back.Scanning));
@@ -197,6 +200,11 @@ public class IndexTests
         var status = new StatusResponse("1.2.3", [new(@"C:\", VolumeState.Ready, 42, null, true), new(@"D:\", VolumeState.Failed, 0, "denied")]);
         var statusBack = IndexProtocol.DecodeStatusResponse(IndexProtocol.EncodeStatusResponse(status));
         Assert.Equal(status.Volumes, statusBack.Volumes);
+        Assert.True(statusBack.Speaks);
+
+        // a service from before protocol 3 sends no protocol number, and the app leaves it alone until it is updated
+        var old = IndexProtocol.EncodeStatusResponse(status)[..^4];
+        Assert.Equal((2, false), (IndexProtocol.DecodeStatusResponse(old).Protocol, IndexProtocol.DecodeStatusResponse(old).Speaks));
     }
 
     [Fact]
@@ -208,7 +216,7 @@ public class IndexTests
         (sizes[23], sizes[24], sizes[26], sizes[28], sizes[30], sizes[33]) = (100, 50, 7, 1000, 3, 20);
         modified[28] = 777;
         index.EnterWrite();
-        index.ApplySizes(sizes, modified);
+        index.ApplySizes(sizes, modified, new long[40]);
         index.ExitWrite();
         Assert.True(index.HasSizes);
         Assert.Equal(150, index.FolderSize(Ref(22)));
@@ -221,7 +229,7 @@ public class IndexTests
         index.EnterWrite();
         index.Upsert(Ref(23), Ref(32), "report.pdf", Normal); // file moved
         index.Upsert(Ref(22), Ref(31), "Documents", Dir); // folder moved with what's in it
-        index.SetFileInfo(Ref(24), 80, 1);
+        index.SetFileInfo(Ref(24), 80, 1, 1);
         index.Remove(Ref(33));
         index.Upsert(Ref(26, 2), Ref(20), "new.txt", Normal); // record reused, its old file's delete missed
         index.ExitWrite();
@@ -232,26 +240,63 @@ public class IndexTests
     }
 
     [Fact]
-    public void Mft_records_give_sizes_times_and_data_runs()
+    public void Recent_changes_come_newest_first()
     {
-        var record = FileRecord(baseRef: 0, StandardInformation(0x1234567), NonResidentData(5_000_000, [0x21, 0x10, 0x00, 0x01, 0x21, 0x08, 0x80, 0xFF]));
+        var index = Sample();
+        var modified = new long[40];
+        var created = new long[40];
+        (modified[23], created[23]) = (500, 100);
+        (modified[24], created[24]) = (50, 600); // copied in: an old modified time, a new created time
+        modified[26] = 700; // in AppData
+        modified[28] = 5000; // a date in the future
+        modified[30] = 800; // in the Recycle Bin
+        modified[33] = 400;
+        (modified[22], created[22]) = (900, 5); // a folder whose content changed
+        created[31] = 450; // a new folder
+        index.EnterWrite();
+        index.ApplySizes(new long[40], modified, created);
+        index.ExitWrite();
+
+        List<string> Recent(bool appData, int? scope = null) =>
+            index.Recent(300, 1000, new IndexSearchOptions(IncludeAppData: appData), scope, 100).Hits.Select(h => h.Path).ToList();
+
+        Assert.Equal([@"C:\Users\denis\Documents\Report draft.docx", @"C:\Users\denis\Documents\report.pdf", @"C:\Projects", @"C:\Projects\src\report.cs"],
+            Recent(appData: false));
+        Assert.Equal(@"C:\Users\denis\AppData\cache.pdf", Recent(appData: true)[0]);
+        Assert.Equal([@"C:\Projects\src\report.cs"], Recent(appData: false, scope: 31));
+        Assert.Equal(-700, index.Recent(300, 1000, new IndexSearchOptions(), null, 1).Hits.Single().Key);
+    }
+
+    [Fact]
+    public void Recent_changes_wait_for_the_times()
+    {
+        var index = Sample();
+        Assert.Empty(index.Recent(0, long.MaxValue, new IndexSearchOptions(), null, 100).Hits);
+    }
+
+    [Fact]
+    public void Mft_records_give_sizes_times_and_data_runs()
+
+    {
+        var record = FileRecord(baseRef: 0, StandardInformation(0x1234567, 0x7654), NonResidentData(5_000_000, [0x21, 0x10, 0x00, 0x01, 0x21, 0x08, 0x80, 0xFF]));
         var sizes = new long[50];
         Array.Fill(sizes, -1L);
         var modified = new long[50];
-        MftReader.ParseRecord(record.ToArray(), 40, sizes, modified);
-        Assert.Equal((5_000_000L, 0x1234567L), (sizes[40], modified[40]));
+        var created = new long[50];
+        MftReader.ParseRecord(record.ToArray(), 40, sizes, modified, created);
+        Assert.Equal((5_000_000L, 0x1234567L, 0x7654L), (sizes[40], modified[40], created[40]));
 
         // the second run's offset is relative and negative
         Assert.Equal([(0L, 0x100L, 0x10L), (0x10L, 0x80L, 0x8L)], MftReader.DataRuns(record.ToArray(), 1024));
 
         // an extension record counts toward its base record
-        MftReader.ParseRecord(FileRecord(baseRef: Ref(7), ResidentData(42)), 41, sizes, modified);
+        MftReader.ParseRecord(FileRecord(baseRef: Ref(7), ResidentData(42)), 41, sizes, modified, created);
         Assert.Equal((42L, -1L), (sizes[7], sizes[41]));
 
         // a torn write is skipped
         var torn = FileRecord(baseRef: 0, ResidentData(9));
         torn[1022] ^= 0xFF;
-        MftReader.ParseRecord(torn, 42, sizes, modified);
+        MftReader.ParseRecord(torn, 42, sizes, modified, created);
         Assert.Equal(-1, sizes[42]);
     }
 
@@ -290,11 +335,12 @@ public class IndexTests
         return a;
     }
 
-    private static byte[] StandardInformation(long modified)
+    private static byte[] StandardInformation(long modified, long created = 0)
     {
         var a = Attribute(0x10, 0x60, false);
         BitConverter.TryWriteBytes(a.AsSpan(0x10), 0x48);
         BitConverter.TryWriteBytes(a.AsSpan(0x14), (ushort)0x18);
+        BitConverter.TryWriteBytes(a.AsSpan(0x18), created);
         BitConverter.TryWriteBytes(a.AsSpan(0x18 + 8), modified);
         return a;
     }

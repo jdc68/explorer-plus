@@ -50,6 +50,12 @@ public static class IndexClient
         return reply is null ? null : IndexProtocol.DecodeSearchResponse(reply);
     }
 
+    public static async Task<SearchResponse?> RecentAsync(RecentRequest request, CancellationToken ct = default)
+    {
+        var reply = await ExchangeAsync(IndexProtocol.EncodeRecent(request), ct).ConfigureAwait(false);
+        return reply is null ? null : IndexProtocol.DecodeSearchResponse(reply);
+    }
+
     public static async Task<StatusResponse?> GetStatusAsync(CancellationToken ct = default)
     {
         var reply = await ExchangeAsync(IndexProtocol.EncodeStatusRequest(), ct).ConfigureAwait(false);

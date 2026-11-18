@@ -5,6 +5,8 @@ using ExplorerPlus.App.Infrastructure;
 using ExplorerPlus.App.Services;
 using ExplorerPlus.Core.Shell;
 using ExplorerPlus.Core.Threading;
+using ExplorerPlus.Indexing;
+
 using ExplorerPlus.Interop;
 
 namespace ExplorerPlus.App.ViewModels;
@@ -165,6 +167,8 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
     private readonly IDisposable _driveWatch;
     private CancellationTokenSource? _driveDebounce;
     private ShellLocation? _synced;
+    private bool _hasIndex;
+    public const string RecentGlyph = "\uE81C";
 
     public ObservableCollection<SidebarItem> Roots { get; } = [];
 
@@ -186,6 +190,17 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
             SHCNE.DRIVEADD | SHCNE.DRIVEREMOVED | SHCNE.MEDIAINSERTED | SHCNE.MEDIAREMOVED | SHCNE.FREESPACE | SHCNE.NETSHARE,
             _ => ScheduleDriveRefresh());
         AppSettings.Current.Changed += OnSettingsChanged;
+        IndexServiceSetup.Changed += OnIndexChanged;
+        OnIndexChanged();
+    }
+
+    // recent changes need the index service
+    private async void OnIndexChanged()
+    {
+        var has = await Task.Run(IndexClient.QueryService) != IndexServiceState.NotInstalled;
+        if (has == _hasIndex) return;
+        _hasIndex = has;
+        BuildLocations();
     }
 
     private void OnSettingsChanged()
@@ -252,6 +267,8 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         var s = AppSettings.Current;
         _locations.Children.Clear();
         _locations.Children.Add(new SidebarFolder("This PC", ShellLocation.Known.ThisPC, null, expandable: false));
+        if (_hasIndex)
+            _locations.Children.Add(new SidebarFolder("Recent changes", RecentChanges.Url(RecentSpan.Hour), null, expandable: false, glyph: RecentGlyph));
         if (s.ShowNetwork) _locations.Children.Add(new SidebarFolder("Network", ShellLocation.Known.Network, null, expandable: false));
         if (s.ShowLinux && HasWslDistros())
             _locations.Children.Add(new SidebarFolder("Linux", ShellLocation.Known.Linux, null, expandable: false));
@@ -315,6 +332,7 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         _driveWatch.Dispose();
         AppSettings.Current.Changed -= OnSettingsChanged;
         Stars.Changed -= BuildStarred;
+        IndexServiceSetup.Changed -= OnIndexChanged;
         Tags.Changed -= BuildTags;
         FrequentFolders.Changed -= BuildFrequent;
     }

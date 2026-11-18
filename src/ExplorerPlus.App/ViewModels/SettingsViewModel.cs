@@ -259,7 +259,7 @@ public sealed class SettingsViewModel : ObservableObject
     }
 
     private static bool IsOutdated(StatusResponse? status) =>
-        status is not null && Version.TryParse(status.Version, out var service) && Version.TryParse(IndexServiceSetup.AppVersion, out var app) && service < app;
+        status is not null && (!status.Speaks || Version.TryParse(status.Version, out var service) && Version.TryParse(IndexServiceSetup.AppVersion, out var app) && service < app);
 
     public string IndexInstallLabel => _indexState switch
     {

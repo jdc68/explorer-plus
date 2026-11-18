@@ -17,6 +17,21 @@
     </WindowChrome.WindowChrome>
 
     <Window.Resources>
+        <Style x:Key="RecentToggle" TargetType="ToggleButton" BasedOn="{StaticResource StatusToggle}">
+            <Setter Property="FontFamily" Value="{Binding FontFamily, RelativeSource={RelativeSource AncestorType=Window}}" />
+            <Setter Property="FontSize" Value="{Binding FontSize, RelativeSource={RelativeSource AncestorType=Window}}" />
+            <Setter Property="Width" Value="NaN" />
+            <Setter Property="Height" Value="28" />
+            <Setter Property="Margin" Value="1,0" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="ContentTemplate">
+                <Setter.Value>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding}" Margin="10,0" />
+                    </DataTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         <!-- Tab strip item -->
         <Style x:Key="TabItemStyle" TargetType="ListBoxItem">
             <Setter Property="Padding" Value="10,0,4,0" />
@@ -654,7 +669,22 @@
                         </StackPanel>
                     </Button>
                 </StackPanel>
-                <Button x:Name="MoreButton" Style="{StaticResource IconButton}" Content="&#xE712;" Click="OnMoreMenuClick" ToolTip="See more" AutomationProperties.Name="More options" />
+                <StackPanel Orientation="Horizontal" Visibility="{Binding SelectedTab.IsRecentChanges, Converter={StaticResource BoolToVis}, FallbackValue=Collapsed}">
+                    <Rectangle Width="1" Margin="6,6" Fill="{DynamicResource DividerStrokeColorDefaultBrush}" />
+                    <ToggleButton Style="{StaticResource RecentToggle}" Content="15 minutes" Tag="FifteenMinutes" Click="OnRecentSpanClick"
+                                  IsChecked="{Binding SelectedTab.RecentSpan, Mode=OneWay, Converter={StaticResource NameEquals}, ConverterParameter=FifteenMinutes}" />
+                    <ToggleButton Style="{StaticResource RecentToggle}" Content="1 hour" Tag="Hour" Click="OnRecentSpanClick"
+                                  IsChecked="{Binding SelectedTab.RecentSpan, Mode=OneWay, Converter={StaticResource NameEquals}, ConverterParameter=Hour}" />
+                    <ToggleButton Style="{StaticResource RecentToggle}" Content="Today" Tag="Today" Click="OnRecentSpanClick"
+                                  IsChecked="{Binding SelectedTab.RecentSpan, Mode=OneWay, Converter={StaticResource NameEquals}, ConverterParameter=Today}" />
+                    <ToggleButton Style="{StaticResource RecentToggle}" Content="7 days" Tag="Week" Click="OnRecentSpanClick"
+                                  IsChecked="{Binding SelectedTab.RecentSpan, Mode=OneWay, Converter={StaticResource NameEquals}, ConverterParameter=Week}" />
+                    <ToggleButton Style="{StaticResource RecentToggle}" Content="Include AppData" Margin="8,0,0,0" Click="OnRecentAppDataClick"
+                                  ToolTip="App settings, caches and temporary files change all the time, so they're left out unless you ask"
+                                  IsChecked="{Binding SelectedTab.RecentIncludesAppData, Mode=OneWay}" />
+                </StackPanel>
+                <Button x:Name="MoreButton" Style="{StaticResource IconButton}"
+ Content="&#xE712;" Click="OnMoreMenuClick" ToolTip="See more" AutomationProperties.Name="More options" />
             </WrapPanel>
         </Border>
 

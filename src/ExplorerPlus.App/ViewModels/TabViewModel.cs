@@ -100,6 +100,9 @@ public sealed class TabViewModel : ObservableObject, IDisposable
             OnPropertyChanged(nameof(ShowNetworkActions));
             OnPropertyChanged(nameof(CanSearch));
             OnPropertyChanged(nameof(EmptyMessage));
+            OnPropertyChanged(nameof(IsRecentChanges));
+            OnPropertyChanged(nameof(RecentSpan));
+            OnPropertyChanged(nameof(RecentIncludesAppData));
         }
     }
 
@@ -113,6 +116,8 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         ? $"Filter items tagged “{_location.Tag}”"
         : _location?.IsDuplicates == true
         ? $"Filter {_location.DisplayName}"
+        : _location?.IsRecentChanges == true
+        ? "Filter recent changes"
         : Kind == LocationKind.Search
         ? $"Filter results for “{_location!.SearchQuery}”"
         : CanSearch ? $"Search {_location!.DisplayName}" : $"Filter {_location?.DisplayName ?? ""}";
@@ -120,7 +125,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
     public LocationKind Kind => _location switch
     {
         null => LocationKind.Folder,
-        { IsSearch: true } or { IsTagView: true } or { IsDuplicates: true } => LocationKind.Search,
+        { IsSearch: true } or { IsTagView: true } or { IsDuplicates: true } or { IsRecentChanges: true } => LocationKind.Search,
         { IsHome: true } => LocationKind.Home,
         { IsThisPC: true } => LocationKind.ThisPC,
         { IsNetwork: true } => LocationKind.Network,
@@ -180,11 +185,29 @@ public sealed class TabViewModel : ObservableObject, IDisposable
             $"Type a name to search {_location.SearchScope?.DisplayName}. Words: all must match · *.pdf: whole name · folder\\name: path · !word: exclude.",
         LocationKind.Search when _location!.IsDuplicates => $"No two files in {_location.DuplicatesIn} have the same content.",
         LocationKind.Search when _location!.IsTagView => $"Nothing is tagged “{_location.Tag}” any more.",
+        LocationKind.Search when _location!.RecentSpan is { } span => span switch
+        {
+            Core.Shell.RecentSpan.FifteenMinutes => "Nothing changed in the last 15 minutes.",
+            Core.Shell.RecentSpan.Hour => "Nothing changed in the last hour.",
+            Core.Shell.RecentSpan.Today => "Nothing changed today.",
+            _ => "Nothing changed in the last 7 days.",
+        } + (_location.RecentIncludesAppData ? "" : " AppData isn't included."),
         LocationKind.Search => "No items match your search.",
         LocationKind.Home => "Pin folders and star files (Ctrl+D) to see them here.",
         LocationKind.RecycleBin => "The Recycle Bin is empty.",
         _ => "This folder is empty.",
     };
+
+    public bool IsRecentChanges => _location?.IsRecentChanges == true;
+    public RecentSpan? RecentSpan => _location?.RecentSpan;
+    public bool RecentIncludesAppData => _location?.RecentIncludesAppData == true;
+
+    /// <summary>Recent changes over another span, or with or without AppData, in the same tab.</summary>
+    public Task ShowRecentAsync(RecentSpan span, bool includeAppData)
+    {
+        if (_location is not { IsRecentChanges: true, SearchScope: { } scope }) return Task.CompletedTask;
+        return NavigateAsync(RecentChanges.Create(span, scope, includeAppData), NavMode.Replace);
+    }
 
     public IReadOnlyList<BreadcrumbSegment> Breadcrumb
     {
@@ -300,7 +323,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
     private IDisposable? WatchFor(ShellLocation location)
     {
         // A search would restart on every change anywhere below it; F5 runs it again instead.
-        if (location.IsTagView || location.IsDuplicates)
+        if (location.IsTagView || location.IsDuplicates || location.IsRecentChanges)
             return ShellChangeWatcher.Instance.Watch(Pidl.Desktop, true, SHCNE.DELETE | SHCNE.RMDIR | SHCNE.RENAMEITEM | SHCNE.RENAMEFOLDER,
                 c => RemoveGone(c.Path1));
         if (location.IsSearch) return null;
@@ -754,10 +777,13 @@ public sealed class TabViewModel : ObservableObject, IDisposable
     private string? FolderKey => _location?.IsSearch == true ? SearchLocation.Scheme
         : _location?.IsTagView == true ? TagView.Scheme
         : _location?.IsDuplicates == true ? DuplicateFinder.Scheme
+        : _location?.IsRecentChanges == true ? RecentChanges.Scheme
         : _location?.FileSystemPath ?? _location?.ParsingName;
 
     private bool IsThisPC => Kind == LocationKind.ThisPC;
-    private SortColumn DefaultSort => IsHome || IsThisPC ? SortColumn.Default : SortColumn.Name;
+    // recent changes come newest first, by the newer of the modified and created times
+    private bool KeepsOwnOrder => IsHome || IsThisPC || _location?.IsRecentChanges == true;
+    private SortColumn DefaultSort => KeepsOwnOrder ? SortColumn.Default : SortColumn.Name;
     private string? DefaultGroup => IsHome || IsThisPC || _location?.IsDuplicates == true ? ColumnCatalog.Section : null;
     private ViewMode DefaultMode => IsThisPC ? ViewMode.Tiles : ViewMode.Details;
 
@@ -811,7 +837,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         _sortColumn = saved?.Sort ?? DefaultSort;
         _sortProperty = saved?.SortProperty;
         if (_sortColumn == SortColumn.Property && _sortProperty is null) _sortColumn = SortColumn.Name;
-        if (_sortColumn == SortColumn.Default && !IsHome && !IsThisPC) _sortColumn = SortColumn.Name;
+        if (_sortColumn == SortColumn.Default && !KeepsOwnOrder) _sortColumn = SortColumn.Name;
         _sortAscending = saved?.Ascending ?? true;
         _groupBy = saved is null ? DefaultGroup : saved.GroupBy;
         if (_groupBy == ColumnCatalog.Section && !IsHome && !IsThisPC && _location?.IsDuplicates != true) _groupBy = null;
@@ -1267,9 +1293,11 @@ public sealed class TabViewModel : ObservableObject, IDisposable
             var free = drives.Sum(d => (decimal)d.DriveFree);
             ItemCountText += $" · {ItemViewModel.FormatSizeShort((long)free)} free of {ItemViewModel.FormatSizeShort((long)total)} on {drives.Count} drive{(drives.Count == 1 ? "" : "s")}";
         }
-        if (!_isLoading && _location?.IndexResults is { } found)
+        if (!_isLoading && (_location?.IndexResults ?? _location?.RecentResults) is { } found)
         {
-            if (found.Truncated) ItemCountText += $" (the best of {found.Total:N0} matches)";
+            if (found.Truncated)
+                ItemCountText += _location!.IsRecentChanges ? $" (the newest of {found.Total:N0} changes)" : $" (the best of {found.Total:N0} matches)";
+
             if (found.Scanning) ItemCountText += " · still reading some drives";
         }
         var sel = _selectedItems;
