@@ -173,7 +173,17 @@ public static partial class IndexSearch
     /// </summary>
     public static async Task<long[]?> GetFolderSizesAsync(IReadOnlyList<string> paths, CancellationToken ct = default)
     {
-        if (paths.Count == 0 || paths.Count > IndexProtocol.MaxFolderSizes) return null;
+        if (paths.Count == 0) return null;
+        if (paths.Count > IndexProtocol.MaxFolderSizes)
+        {
+            var all = new List<long>(paths.Count);
+            foreach (var chunk in paths.Chunk(IndexProtocol.MaxFolderSizes))
+            {
+                if (await GetFolderSizesAsync(chunk, ct).ConfigureAwait(false) is not { } part) return null;
+                all.AddRange(part);
+            }
+            return [.. all];
+        }
         var status = await GetStatusAsync(ct: ct).ConfigureAwait(false);
         // a cached status from while the service was still reading sizes would send every folder to the slow walk
         if (status is not null && !HasSizesFor(status, paths) && paths.Any(p => SizesComing(status, p)))

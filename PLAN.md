@@ -8,7 +8,7 @@ A fast, keyboard-friendly file manager for Windows 11, built for work and everyd
 - **Then:** nothing else is planned; the backlog below waits for the user.
 - **Backlog, only when the user asks:** I18 big, old and empty finders (postponed by the user, 18 Nov 2026), I14, Save and Open dialogs ([#9](https://github.com/jdc68/explorer-plus/issues/9)).
 - **Postponed:** M7, remote locations and plugins.
-- **Done:** M1 to M6, I1 to I13, I15 (closed for now), I16 (0.1.35), I17 (0.1.36), I22, I23 (0.1.33), I24, I25 (0.1.37, [#29](https://github.com/jdc68/explorer-plus/issues/29)), I19 (0.1.38), I20 (0.1.39). What was built, the findings and the checks made are in [HISTORY.md](HISTORY.md). What is still open from them is in section 6, under "Open checks" and "Loose ends".
+- **Done:** M1 to M6, I1 to I13, I15 (closed for now), I16 (0.1.35), I17 (0.1.36), I22, I23 (0.1.33), I24, I25 (0.1.37, [#29](https://github.com/jdc68/explorer-plus/issues/29)), I19 (0.1.38), I20 (0.1.39, fixed in 0.1.40). What was built, the findings and the checks made are in [HISTORY.md](HISTORY.md). What is still open from them is in section 6, under "Open checks" and "Loose ends".
 
 How this file is kept:
 - This section is the only place that gives the order. Update it when a step starts or finishes, or when the user changes the order.
@@ -216,6 +216,7 @@ Known gaps left on purpose. Each one could become a step if the user wants it.
   - Release notes are the commit subjects. Writing them by hand is still undecided.
   - Submitting the winget manifests to winget-pkgs is still done by hand [I7].
 - **Toolbar and status toggles** (Recent changes' spans, flat view and its kinds) only act on a click: UI Automation's Toggle changes their check mark without running them, so a screen reader can't use them yet [I19].
+- **Tab loads under a starved thread pool** ended with an empty list and a stale "Loading…" instead of finishing late (seen while 0.1.39's disk usage window hogged the pool); the cause in the load path wasn't found [I20].
 - **Disk usage charts** are drawn by hand and have no UI Automation peer; the list beside them is the accessible way in [I20].
 - **Views:** List view takes about 50 ms a frame while scrolling, with smooth scrolling on or off [I10].
 - **Performance, left for later in I15:**

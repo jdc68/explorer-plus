@@ -13,7 +13,24 @@ public sealed class DiskNode
     public long Size { get; internal set; }
 
     /// <summary>Null until the folder was listed; biggest first.</summary>
-    public IReadOnlyList<DiskNode>? Children { get; internal set; }
+    public IReadOnlyList<DiskNode>? Children
+    {
+        get
+        {
+            if (!_unsorted) return _children;
+            lock (this)
+            {
+                if (_unsorted && _children is not null) _children = DiskUsage.Sorted(_children);
+                _unsorted = false;
+                return _children;
+            }
+        }
+    }
+
+    // written under lock (this); sorting waits for the next read, so a folder with thousands of subfolders isn't resorted per total
+    internal List<DiskNode>? _children;
+    internal bool _unsorted;
+    internal int _unknown;
 
     // a stand-in for the many small items a chart doesn't draw one by one
     public int OtherCount { get; init; }
@@ -57,12 +74,12 @@ public sealed class DiskUsage(string root, bool useIndex = true)
     /// <summary>Lists a folder (once) with its subfolders' totals from the index; those it lacks are walked afterwards (<see cref="Changed"/>).</summary>
     public async Task LoadAsync(DiskNode folder, CancellationToken ct)
     {
-        if (!folder.IsFolder || folder.Children is not null) return;
+        if (!folder.IsFolder || folder._children is not null) return;
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         List<FolderEntry> listed;
         try
         {
-            if (folder.Children is not null) return;
+            if (folder._children is not null) return;
             listed = await Task.Run(() =>
             {
                 try { return FastFolderEnumerator.Enumerate(folder.Path, ct).ToList(); }
@@ -83,8 +100,9 @@ public sealed class DiskUsage(string root, bool useIndex = true)
             }).ToList();
         lock (folder)
         {
-            if (folder.Children is not null) return;
-            folder.Children = Sorted(children);
+            if (folder._children is not null) return;
+            folder._unknown = children.Count(c => c.Size < 0);
+            folder._children = Sorted(children);
         }
         Recount(folder);
         Changed?.Invoke(folder);
@@ -117,11 +135,22 @@ public sealed class DiskUsage(string root, bool useIndex = true)
 
     private void SetSize(DiskNode folder, long size)
     {
-        folder.Size = size;
-        if (folder.Parent is { } parent)
+        Assign(folder, size);
+        if (folder.Parent is { } parent) Recount(parent);
+    }
+
+    private static void Assign(DiskNode node, long size)
+    {
+        if (node.Parent is not { } parent)
         {
-            lock (parent) parent.Children = Sorted(parent.Children!);
-            Recount(parent);
+            node.Size = size;
+            return;
+        }
+        lock (parent)
+        {
+            if (node.Size < 0 && size >= 0) parent._unknown--;
+            node.Size = size;
+            parent._unsorted = true;
         }
     }
 
@@ -129,7 +158,11 @@ public sealed class DiskUsage(string root, bool useIndex = true)
     public void Remove(DiskNode node)
     {
         if (node.Parent is not { } parent) return;
-        lock (parent) parent.Children = parent.Children?.Where(c => c != node).ToList();
+        lock (parent)
+        {
+            if (parent._children is null || !parent._children.Remove(node)) return;
+            if (node.Size < 0) parent._unknown--;
+        }
         Recount(parent);
         Changed?.Invoke(parent);
     }
@@ -139,17 +172,18 @@ public sealed class DiskUsage(string root, bool useIndex = true)
     {
         for (var f = folder; f is not null; f = f.Parent)
         {
-            var children = f.Children;
-            if (children is null || children.Any(c => c.Size < 0)) return;
-            var total = children.Sum(c => c.Size);
+            long total;
+            lock (f)
+            {
+                if (f._children is null || f._unknown > 0) return;
+                total = f._children.Sum(c => c.Size);
+            }
             if (total == f.Size) return;
-            f.Size = total;
-            if (f.Parent is { } parent)
-                lock (parent) parent.Children = Sorted(parent.Children!);
+            Assign(f, total);
         }
     }
 
-    private static List<DiskNode> Sorted(IEnumerable<DiskNode> nodes) =>
+    internal static List<DiskNode> Sorted(IEnumerable<DiskNode> nodes) =>
         [.. nodes.OrderByDescending(n => n.Size).ThenBy(n => n.Name, StringComparer.OrdinalIgnoreCase)];
 
     /// <summary>

@@ -29,6 +29,32 @@ public class DiskUsageTests
     }
 
     [Fact]
+    public async Task Thousands_of_walked_subfolders_add_up_quickly()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "ep-usage-" + Guid.NewGuid().ToString("N")[..8]);
+        try
+        {
+            const int count = 3000;
+            for (var i = 0; i < count; i++)
+            {
+                Directory.CreateDirectory(Path.Combine(root, $"d{i:D4}"));
+                File.WriteAllBytes(Path.Combine(root, $"d{i:D4}", "f.bin"), new byte[i % 7 + 1]);
+            }
+            var usage = new DiskUsage(root, useIndex: false);
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            await usage.LoadAsync(usage.Root, CancellationToken.None);
+            var expected = Enumerable.Range(0, count).Sum(i => (long)(i % 7 + 1));
+            while (usage.Root.Size != expected && watch.Elapsed < TimeSpan.FromSeconds(60)) await Task.Delay(50);
+
+            Assert.Equal(expected, usage.Root.Size);
+            Assert.Equal(0, usage.Measuring);
+            var sizes = usage.Root.Children!.Select(c => c.Size).ToList();
+            Assert.Equal(sizes.OrderDescending(), sizes);
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    [Fact]
     public async Task Folders_get_their_totals_and_shrink_after_a_delete()
     {
         var root = Path.Combine(Path.GetTempPath(), "ep-usage-" + Guid.NewGuid().ToString("N")[..8]);
