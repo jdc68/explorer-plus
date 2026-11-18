@@ -4,9 +4,9 @@ A fast, keyboard-friendly file manager for Windows 11, built for work and everyd
 
 ## Status (18 Nov 2026)
 
-- **Now: I18** big, old and empty finders. Its "Decide with the user" lines are still open, so they are settled with the user before it is built.
-- **Then, in this order:** I19 flat view, I20 disk usage treemap, I21 drop shelf.
-- **Backlog, only when the user asks:** I14, Save and Open dialogs ([#9](https://github.com/jdc68/explorer-plus/issues/9)).
+- **Now: I19** flat view. Its "Decide with the user" lines are still open, so they are settled with the user before it is built.
+- **Then, in this order:** I20 disk usage treemap, I21 drop shelf.
+- **Backlog, only when the user asks:** I18 big, old and empty finders (postponed by the user, 18 Nov 2026), I14, Save and Open dialogs ([#9](https://github.com/jdc68/explorer-plus/issues/9)).
 - **Postponed:** M7, remote locations and plugins.
 - **Done:** M1 to M6, I1 to I13, I15 (closed for now), I16 (0.1.35), I17 (0.1.36), I22, I23 (0.1.33), I24, I25 (0.1.37, [#29](https://github.com/jdc68/explorer-plus/issues/29)). What was built, the findings and the checks made are in [HISTORY.md](HISTORY.md). What is still open from them is in section 6, under "Open checks" and "Loose ends".
 
