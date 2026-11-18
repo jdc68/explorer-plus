@@ -8,11 +8,11 @@ A fast, keyboard-friendly file manager for Windows 11, built for work and everyd
 - **Then, in this order:** I19 flat view, I20 disk usage treemap, I21 drop shelf.
 - **Backlog, only when the user asks:** I14, Save and Open dialogs ([#9](https://github.com/jdc68/explorer-plus/issues/9)).
 - **Postponed:** M7, remote locations and plugins.
-- **Done:** M1 to M6, I1 to I13, I15 (closed for now), I16 (0.1.35), I17 (0.1.36), I22, I23 (0.1.33), I24. What was built, the findings and the checks made are in [HISTORY.md](HISTORY.md). What is still open from them is in section 6, under "Open checks" and "Loose ends".
+- **Done:** M1 to M6, I1 to I13, I15 (closed for now), I16 (0.1.35), I17 (0.1.36), I22, I23 (0.1.33), I24, I25 (0.1.37, [#29](https://github.com/jdc68/explorer-plus/issues/29)). What was built, the findings and the checks made are in [HISTORY.md](HISTORY.md). What is still open from them is in section 6, under "Open checks" and "Loose ends".
 
 How this file is kept:
 - This section is the only place that gives the order. Update it when a step starts or finishes, or when the user changes the order.
-- A new step takes the next free number (I25 is next) and keeps it for good, since commits and issues refer to it. Its spec goes into section 6 and its place in the order goes here.
+- A new step takes the next free number (I26 is next) and keeps it for good, since commits and issues refer to it. Its spec goes into section 6 and its place in the order goes here.
 - A step's "Decide with the user" lines are settled before it is built.
 - When a step is done, its spec and write-up (what was built, findings, how it was checked) move to HISTORY.md. Its "not tried by hand" items go to "Open checks" and anything left for later to "Loose ends". Section 7 is updated when files are added, section 8 when something is measured, and section 5 when the user makes a decision that must hold.
 
@@ -181,6 +181,7 @@ Gathered from the finished steps; the step in brackets has the details in HISTOR
   - Folder links from other apps, Win+E, VS Code "Show in folder" and Office "Open file location", and uninstalling with the default file manager on [M4].
   - The taskbar progress, `Ctrl+N` and a Narrator pass [M4].
   - The new icon in the Start menu and in installed apps [I1].
+  - A real app's "Show in folder" when the folder is open in a background tab or a right pane: it should switch to it, not open a new tab [I25].
 - **Lists and views:**
   - Drag and drop, marquee, the header column menu, zoom and collapsing groups [M2].
   - The scroll reset in icon views [I2].

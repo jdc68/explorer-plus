@@ -165,6 +165,14 @@ public partial class App : Application
             if (parent is not null) { targets.Insert(0, parent); select = sel; }
         }
 
+        if (fromOtherInstance && !cmd.NewWindow)
+        {
+            var revealed = targets.Where(t => RevealOpenTab(t, t == targets[0] ? select : null)).ToList();
+            if (revealed.Count > 0 && revealed[0] == targets[0]) select = null;
+            targets.RemoveAll(revealed.Contains);
+            if (revealed.Count > 0 && targets.Count == 0) return;
+        }
+
         var existing = MainWindows.LastOrDefault();
         if (fromOtherInstance && existing is not null && !cmd.NewWindow && settings.OpenFoldersInNewTab)
         {
@@ -184,6 +192,27 @@ public partial class App : Application
         var window = new MainWindow(targets, select);
         window.Show();
         window.BringToFront();
+    }
+
+    // a folder already open in a tab or pane is shown there, not opened again (#29)
+    private static bool RevealOpenTab(string target, string? select)
+    {
+        var path = target.TrimEnd('\\');
+        bool Same(string? s) => s is not null && string.Equals(s.TrimEnd('\\'), path, StringComparison.OrdinalIgnoreCase);
+        foreach (var window in MainWindows.Reverse())
+        {
+            var vm = window.ViewModel;
+            var match = vm.Tabs.SelectMany(t => t.Partner is { } right ? [t, right] : new[] { t })
+                .Where(v => !v.IsSearch && v.Location is { } l && (Same(l.FileSystemPath) || Same(l.ParsingName)))
+                .OrderBy(v => v == vm.SelectedTab ? 0 : 1)
+                .FirstOrDefault();
+            if (match is null) continue;
+            vm.SelectedTab = match;
+            window.BringToFront();
+            if (select is not null) match.SelectFromShell(null, select, add: false, rename: false);
+            return true;
+        }
+        return false;
     }
 
     public static void OpenWorkspace(Workspace workspace)

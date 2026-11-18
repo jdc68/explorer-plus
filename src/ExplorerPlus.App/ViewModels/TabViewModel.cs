@@ -919,12 +919,12 @@ public sealed class TabViewModel : ObservableObject, IDisposable
     // ---------- Live updates ----------
 
     private string? _selectWhenCreated;
-    private readonly List<(Pidl Pidl, string? Path)> _shellSelection = [];
+    private readonly List<(Pidl? Pidl, string? Path)> _shellSelection = [];
     private bool _shellRename;
     private DateTime _shellSelectionUntil;
 
     // "Show in folder" from another app; the file may not be listed yet
-    public void SelectFromShell(Pidl item, string? path, bool add, bool rename)
+    public void SelectFromShell(Pidl? item, string? path, bool add, bool rename)
     {
         if (!add || DateTime.UtcNow > _shellSelectionUntil) _shellSelection.Clear();
         _shellSelection.Add((item, path?.TrimEnd('\\')));
@@ -945,13 +945,14 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         return found.Count > 0 ? found : null;
     }
 
-    private ItemViewModel? FindListed((Pidl Pidl, string? Path) wanted) =>
+    private ItemViewModel? FindListed((Pidl? Pidl, string? Path) wanted) =>
         _all.FirstOrDefault(i => wanted.Path is not null
             ? i.Entry.Path is { } p && string.Equals(p.TrimEnd('\\'), wanted.Path, StringComparison.OrdinalIgnoreCase)
             : i.Entry.Pidl is { } pidl && pidl.Equals(wanted.Pidl));
 
     private void ShowShellSelection(List<ItemViewModel> items)
     {
+        SavedSelection = []; // a background tab brought forward would restore it over this one
         SelectionRequested?.Invoke(items);
         if (_shellRename && items.Count == 1)
         {
