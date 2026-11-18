@@ -103,6 +103,9 @@ public sealed class TabViewModel : ObservableObject, IDisposable
             OnPropertyChanged(nameof(IsRecentChanges));
             OnPropertyChanged(nameof(RecentSpan));
             OnPropertyChanged(nameof(RecentIncludesAppData));
+            OnPropertyChanged(nameof(IsFlat));
+            OnPropertyChanged(nameof(CanFlat));
+            OnPropertyChanged(nameof(FlatKind));
         }
     }
 
@@ -118,6 +121,8 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         ? $"Filter {_location.DisplayName}"
         : _location?.IsRecentChanges == true
         ? "Filter recent changes"
+        : _location?.IsFlat == true
+        ? $"Filter files in {_location.SearchScope!.DisplayName}"
         : Kind == LocationKind.Search
         ? $"Filter results for “{_location!.SearchQuery}”"
         : CanSearch ? $"Search {_location!.DisplayName}" : $"Filter {_location?.DisplayName ?? ""}";
@@ -125,7 +130,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
     public LocationKind Kind => _location switch
     {
         null => LocationKind.Folder,
-        { IsSearch: true } or { IsTagView: true } or { IsDuplicates: true } or { IsRecentChanges: true } => LocationKind.Search,
+        { IsSearch: true } or { IsTagView: true } or { IsDuplicates: true } or { IsRecentChanges: true } or { IsFlat: true } => LocationKind.Search,
         { IsHome: true } => LocationKind.Home,
         { IsThisPC: true } => LocationKind.ThisPC,
         { IsNetwork: true } => LocationKind.Network,
@@ -192,6 +197,8 @@ public sealed class TabViewModel : ObservableObject, IDisposable
             Core.Shell.RecentSpan.Today => "Nothing changed today.",
             _ => "Nothing changed in the last 7 days.",
         } + (_location.RecentIncludesAppData ? "" : " AppData isn't included."),
+        LocationKind.Search when _location!.IsFlat => _location.FlatKind is { Length: > 0 } kind
+            ? $"No {kind.ToLowerInvariant()} below {_location.SearchScope!.DisplayName}." : $"No files below {_location.SearchScope!.DisplayName}.",
         LocationKind.Search => "No items match your search.",
         LocationKind.Home => "Pin folders and star files (Ctrl+D) to see them here.",
         LocationKind.RecycleBin => "The Recycle Bin is empty.",
@@ -208,6 +215,20 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         if (_location is not { IsRecentChanges: true, SearchScope: { } scope }) return Task.CompletedTask;
         return NavigateAsync(RecentChanges.Create(span, scope, includeAppData), NavMode.Replace);
     }
+
+    public bool IsFlat => _location?.IsFlat == true;
+    public bool CanFlat => IsFlat || Kind == LocationKind.Folder && _location is { IsFileSystemFolder: true };
+    public string? FlatKind => _location?.FlatKind is { } kind ? kind.Length > 0 ? kind : AllKinds : null;
+    public const string AllKinds = "All";
+
+    /// <summary>Flat view on or off in place: every file below this folder, or the folder again.</summary>
+    public Task ToggleFlatAsync() =>
+        _location is { IsFlat: true, SearchScope: { } folder } ? NavigateAsync(folder, NavMode.Replace)
+        : CanFlat ? NavigateAsync(FlatView.Create(_location!), NavMode.Replace) : Task.CompletedTask;
+
+    public Task ShowFlatKindAsync(string kind) =>
+        _location is { IsFlat: true, SearchScope: { } folder } && kind != FlatKind
+            ? NavigateAsync(FlatView.Create(folder, kind == AllKinds ? "" : kind), NavMode.Replace) : Task.CompletedTask;
 
     public IReadOnlyList<BreadcrumbSegment> Breadcrumb
     {
@@ -323,7 +344,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
     private IDisposable? WatchFor(ShellLocation location)
     {
         // A search would restart on every change anywhere below it; F5 runs it again instead.
-        if (location.IsTagView || location.IsDuplicates || location.IsRecentChanges)
+        if (location.IsTagView || location.IsDuplicates || location.IsRecentChanges || location.IsFlat)
             return ShellChangeWatcher.Instance.Watch(Pidl.Desktop, true, SHCNE.DELETE | SHCNE.RMDIR | SHCNE.RENAMEITEM | SHCNE.RENAMEFOLDER,
                 c => RemoveGone(c.Path1));
         if (location.IsSearch) return null;
@@ -778,13 +799,14 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         : _location?.IsTagView == true ? TagView.Scheme
         : _location?.IsDuplicates == true ? DuplicateFinder.Scheme
         : _location?.IsRecentChanges == true ? RecentChanges.Scheme
+        : _location?.IsFlat == true ? FlatView.Scheme
         : _location?.FileSystemPath ?? _location?.ParsingName;
 
     private bool IsThisPC => Kind == LocationKind.ThisPC;
     // recent changes come newest first, by the newer of the modified and created times
     private bool KeepsOwnOrder => IsHome || IsThisPC || _location?.IsRecentChanges == true;
     private SortColumn DefaultSort => KeepsOwnOrder ? SortColumn.Default : SortColumn.Name;
-    private string? DefaultGroup => IsHome || IsThisPC || _location?.IsDuplicates == true ? ColumnCatalog.Section : null;
+    private string? DefaultGroup => IsHome || IsThisPC || _location?.IsDuplicates == true || IsFlat ? ColumnCatalog.Section : null;
     private ViewMode DefaultMode => IsThisPC ? ViewMode.Tiles : ViewMode.Details;
 
     private ItemViewModel NewItem(FolderEntry entry) => new(entry) { ImageSize = ViewModes.ImageSize(_viewMode) };
@@ -840,7 +862,7 @@ public sealed class TabViewModel : ObservableObject, IDisposable
         if (_sortColumn == SortColumn.Default && !KeepsOwnOrder) _sortColumn = SortColumn.Name;
         _sortAscending = saved?.Ascending ?? true;
         _groupBy = saved is null ? DefaultGroup : saved.GroupBy;
-        if (_groupBy == ColumnCatalog.Section && !IsHome && !IsThisPC && _location?.IsDuplicates != true) _groupBy = null;
+        if (_groupBy == ColumnCatalog.Section && !IsHome && !IsThisPC && _location?.IsDuplicates != true && !IsFlat) _groupBy = null;
         _columnWidths.Clear();
         List<string>? columns = null;
         if (saved?.Columns is { Count: > 0 } stored)
@@ -1294,10 +1316,12 @@ public sealed class TabViewModel : ObservableObject, IDisposable
             var free = drives.Sum(d => (decimal)d.DriveFree);
             ItemCountText += $" · {ItemViewModel.FormatSizeShort((long)free)} free of {ItemViewModel.FormatSizeShort((long)total)} on {drives.Count} drive{(drives.Count == 1 ? "" : "s")}";
         }
-        if (!_isLoading && (_location?.IndexResults ?? _location?.RecentResults) is { } found)
+        if (!_isLoading && (_location?.IndexResults ?? _location?.RecentResults ?? _location?.FlatResults) is { } found)
         {
             if (found.Truncated)
-                ItemCountText += _location!.IsRecentChanges ? $" (the newest of {found.Total:N0} changes)" : $" (the best of {found.Total:N0} matches)";
+                ItemCountText += _location!.IsRecentChanges ? $" (the newest of {found.Total:N0} changes)"
+                    : _location.IsFlat ? $" (the first {found.Limit:N0} of {found.Total:N0} files)" : $" (the best of {found.Total:N0} matches)";
+            else if (found.CutUncounted) ItemCountText += $" (the first {found.Limit:N0} files)";
 
             if (found.Scanning) ItemCountText += " · still reading some drives";
         }

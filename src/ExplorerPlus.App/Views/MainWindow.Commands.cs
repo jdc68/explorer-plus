@@ -407,6 +407,7 @@ public partial class MainWindow
             }
             if (tab.ViewIsRemembered) Add("View: Reset this folder's view", tab.ResetView, null, "");
         }
+        if (tab?.CanFlat == true) Add(tab.IsFlat ? "Leave flat view" : "Flat view: every file below this folder", () => Await(tab.ToggleFlatAsync), null, "");
         Add(ViewModel.Pane.IsPreview ? "Hide the preview pane" : "Show the preview pane", () => ViewModel.Pane.Toggle(PaneMode.Preview), "Alt+P", "");
         Add(ViewModel.Pane.IsDetails ? "Hide the details pane" : "Show the details pane", () => ViewModel.Pane.Toggle(PaneMode.Details), "Alt+Shift+P", "");
         Add(ViewModel.ShowHiddenFiles ? "Hide hidden items" : "Show hidden items", () => ViewModel.ShowHiddenFiles = !ViewModel.ShowHiddenFiles, null, "");

@@ -683,6 +683,19 @@
                                   ToolTip="App settings, caches and temporary files change all the time, so they're left out unless you ask"
                                   IsChecked="{Binding SelectedTab.RecentIncludesAppData, Mode=OneWay}" />
                 </StackPanel>
+                <StackPanel Orientation="Horizontal" Visibility="{Binding SelectedTab.IsFlat, Converter={StaticResource BoolToVis}, FallbackValue=Collapsed}">
+                    <Rectangle Width="1" Margin="6,6" Fill="{DynamicResource DividerStrokeColorDefaultBrush}" />
+                    <ToggleButton Style="{StaticResource RecentToggle}" Content="All files" Tag="All" Click="OnFlatKindClick"
+                                  IsChecked="{Binding SelectedTab.FlatKind, Mode=OneWay, Converter={StaticResource NameEquals}, ConverterParameter=All}" />
+                    <ToggleButton Style="{StaticResource RecentToggle}" Content="Pictures" Tag="Pictures" Click="OnFlatKindClick"
+                                  IsChecked="{Binding SelectedTab.FlatKind, Mode=OneWay, Converter={StaticResource NameEquals}, ConverterParameter=Pictures}" />
+                    <ToggleButton Style="{StaticResource RecentToggle}" Content="Videos" Tag="Videos" Click="OnFlatKindClick"
+                                  IsChecked="{Binding SelectedTab.FlatKind, Mode=OneWay, Converter={StaticResource NameEquals}, ConverterParameter=Videos}" />
+                    <ToggleButton Style="{StaticResource RecentToggle}" Content="Music" Tag="Music" Click="OnFlatKindClick"
+                                  IsChecked="{Binding SelectedTab.FlatKind, Mode=OneWay, Converter={StaticResource NameEquals}, ConverterParameter=Music}" />
+                    <ToggleButton Style="{StaticResource RecentToggle}" Content="Documents and code" Tag="Documents" Click="OnFlatKindClick"
+                                  IsChecked="{Binding SelectedTab.FlatKind, Mode=OneWay, Converter={StaticResource NameEquals}, ConverterParameter=Documents}" />
+                </StackPanel>
                 <Button x:Name="MoreButton" Style="{StaticResource IconButton}"
  Content="&#xE712;" Click="OnMoreMenuClick" ToolTip="See more" AutomationProperties.Name="More options" />
             </WrapPanel>
@@ -894,6 +907,10 @@
             <TextBlock DockPanel.Dock="Left" VerticalAlignment="Center" Text="{Binding SelectedTab.SelectionText}" Margin="16,0,0,0" Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
             <ToggleButton x:Name="ViewIconsButton" DockPanel.Dock="Right" Style="{StaticResource StatusToggle}" Content="&#xE8A9;" Click="OnViewIconsClick" ToolTip="Large icons (Ctrl+Shift+2)" AutomationProperties.Name="Large icons" />
             <ToggleButton x:Name="ViewDetailsButton" DockPanel.Dock="Right" Style="{StaticResource StatusToggle}" Content="&#xE8EF;" Click="OnViewDetailsClick" ToolTip="Details (Ctrl+Shift+6)" Margin="12,0,2,0" AutomationProperties.Name="Details" />
+            <ToggleButton DockPanel.Dock="Right" Style="{StaticResource StatusToggle}" Content="&#xE8FD;" Click="OnFlatClick" Margin="8,0,0,0"
+                          ToolTip="Flat view: every file below this folder in one list" AutomationProperties.Name="Flat view"
+                          IsChecked="{Binding SelectedTab.IsFlat, Mode=OneWay}"
+                          Visibility="{Binding SelectedTab.CanFlat, Converter={StaticResource BoolToVis}, FallbackValue=Collapsed}" />
             <Button x:Name="TransfersButton" DockPanel.Dock="Right" Style="{StaticResource CommandButton}" Click="OnTransfersClick" Margin="8,0,4,0"
                     Padding="8,0" MinHeight="24" Visibility="Collapsed" AutomationProperties.Name="Transfers" ToolTip="Copies and moves in progress or waiting">
                 <StackPanel Orientation="Horizontal">

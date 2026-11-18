@@ -576,6 +576,20 @@ public partial class MainWindow : Window
         try { await tab.ShowRecentAsync(span, !tab.RecentIncludesAppData); }
         catch (Exception ex) { ViewModel.ShowNotice(ex.Message); }
     }
+    private async void OnFlatClick(object sender, RoutedEventArgs e)
+    {
+        if (Tab is not { } tab) return;
+        try { await tab.ToggleFlatAsync(); }
+        catch (Exception ex) { ViewModel.ShowNotice(ex.Message); }
+    }
+
+    private async void OnFlatKindClick(object sender, RoutedEventArgs e)
+    {
+        if (Tab is not { } tab || sender is not FrameworkElement { Tag: string kind }) return;
+        try { await tab.ShowFlatKindAsync(kind); }
+        catch (Exception ex) { ViewModel.ShowNotice(ex.Message); }
+    }
+
     private void OnRestoreAllClick(object sender, RoutedEventArgs e) => ViewModel.Restore(FileList.Items.Cast<ItemViewModel>().ToList());
 
     private void OnRestoreSelectedClick(object sender, RoutedEventArgs e)
@@ -625,6 +639,7 @@ public partial class MainWindow : Window
         var details = MenuCheck("Details pane", pane.IsDetails, () => pane.Toggle(PaneMode.Details));
         details.InputGestureText = "Alt+Shift+P";
         menu.Items.Add(details);
+        if (tab.CanFlat) menu.Items.Add(MenuCheck("Flat view", tab.IsFlat, async () => await tab.ToggleFlatAsync()));
         var dual = MenuCheck("Dual pane", ViewModel.IsDualPane, async () => await ToggleDualPaneAsync());
         dual.InputGestureText = "Ctrl+\\";
         menu.Items.Add(dual);

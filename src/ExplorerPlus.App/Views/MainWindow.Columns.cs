@@ -180,6 +180,7 @@ public partial class MainWindow
     {
         LocationKind.Home => "Section",
         LocationKind.ThisPC => "Category",
+        LocationKind.Search when tab.IsFlat => "Folder",
         _ => null,
     };
 

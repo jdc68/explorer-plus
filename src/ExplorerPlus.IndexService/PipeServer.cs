@@ -95,6 +95,11 @@ internal sealed class PipeServer(IndexHost host) : IDisposable
                         pipe.RunAsClient(() => changes = host.Recent(recent, ct));
                         reply = IndexProtocol.EncodeSearchResponse(changes ?? new SearchResponse(SearchStatus.BadRequest, 0, [], false));
                         break;
+                    case FilesRequest files:
+                        SearchResponse? listed = null;
+                        pipe.RunAsClient(() => listed = host.Files(files, ct));
+                        reply = IndexProtocol.EncodeSearchResponse(listed ?? new SearchResponse(SearchStatus.BadRequest, 0, [], false));
+                        break;
                     case FolderSizesRequest folders:
                         long[] sizes = [];
                         pipe.RunAsClient(() => sizes = host.FolderSizes(folders.Paths));

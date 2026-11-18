@@ -67,6 +67,8 @@ public partial class App : Application
         FolderLoader.HomeOptions = QuickAccess.HomeOptions;
         TagView.Paths = tag => Current.Dispatcher.Invoke(() => Tags.PathsWith(tag));
         IndexSearch.Options = () => new IndexSearchOptions(AppSettings.Current.ShowHiddenFiles, AppSettings.Current.ShowProtectedOsFiles);
+        FlatView.KindExtensions = kind => AppSettings.Current.ViewRules
+            .FirstOrDefault(r => r.Content.ToString().Equals(kind, StringComparison.OrdinalIgnoreCase) && r.Extensions.Count > 0)?.Extensions;
         _ = ShellNewTemplates.GetAsync(); // read the New ▸ list in the background so the menu opens instantly
         FolderSizeWatcher.Start();
         ThumbnailService.Start();

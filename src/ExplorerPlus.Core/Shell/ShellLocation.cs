@@ -48,6 +48,12 @@ public sealed class ShellLocation
     public IndexSearchInfo? RecentResults { get; init; }
 
     public bool IsRecentChanges => RecentSpan is not null;
+
+    // flat view only: the kind of files listed ("" for all of them)
+    public string? FlatKind { get; init; }
+    public IndexSearchInfo? FlatResults { get; init; }
+
+    public bool IsFlat => FlatKind is not null;
     public bool IsHome => Is(Known.Home);
     public bool IsRecycleBin => Is(Known.RecycleBin);
     public bool IsNetwork => Is(Known.Network);
@@ -113,6 +119,7 @@ public sealed class ShellLocation
             if (TagView.IsUrl(parsingName)) return TagView.FromUrl(parsingName);
             if (DuplicateFinder.IsUrl(parsingName)) return DuplicateFinder.FromUrl(parsingName);
             if (RecentChanges.IsUrl(parsingName)) return RecentChanges.FromUrl(parsingName);
+            if (FlatView.IsUrl(parsingName)) return FlatView.FromUrl(parsingName);
             var pidl = ShellNative.TryParse(parsingName);
             if (pidl is null) return null;
             var loc = FromPidl(pidl);

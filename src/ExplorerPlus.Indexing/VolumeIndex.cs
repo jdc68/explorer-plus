@@ -378,6 +378,98 @@ public sealed class VolumeIndex
         }
     }
 
+    /// <summary>
+    /// The files below <paramref name="scopeRecord"/> in path order (a folder's files by name, then each subfolder in
+    /// turn), at most <paramref name="limit"/>, only those whose extension (without the dot) is in
+    /// <paramref name="extensions"/> when it is given. Folders <paramref name="canList"/> refuses are skipped with
+    /// everything below them. Total counts every matching file, also past the limit.
+    /// </summary>
+    public (List<IndexHit> Hits, int Total) Files(IndexSearchOptions options, int scopeRecord, IReadOnlySet<string>? extensions, int limit,
+        Func<int, string, bool>? canList = null, CancellationToken ct = default)
+    {
+        var wanted = extensions is null ? (HashSet<string>.AlternateLookup<ReadOnlySpan<char>>?)null
+            : new HashSet<string>(extensions, StringComparer.OrdinalIgnoreCase).GetAlternateLookup<ReadOnlySpan<char>>();
+        _lock.EnterReadLock();
+        var n = _parent.Length;
+        // after the fill, the children of p are children[start[p] .. start[p + 1]]
+        var start = ArrayPool<int>.Shared.Rent(n + 2);
+        var children = ArrayPool<int>.Shared.Rent(n);
+        try
+        {
+            Array.Clear(start, 0, n + 2);
+            for (var r = 0; r < n; r++)
+                if (_parent[r] is var p && p >= 0 && p < n && r != RootRecord) start[p + 2]++;
+            for (var i = 2; i < n + 2; i++) start[i] += start[i - 1];
+            for (var r = 0; r < n; r++)
+                if (_parent[r] is var p && p >= 0 && p < n && r != RootRecord) children[start[p + 1]++] = r;
+
+            var hits = new List<IndexHit>();
+            var total = 0;
+            var files = new List<int>();
+            var folders = new List<int>();
+            Comparison<int> byName = (a, b) => NameOf(a).CompareTo(NameOf(b), StringComparison.OrdinalIgnoreCase);
+            var stack = new Stack<(int Record, string Path, int Depth)>();
+            stack.Push((scopeRecord, scopeRecord == RootRecord ? Root.TrimEnd('\\') : GetPathInRead(scopeRecord) ?? "", 0));
+            while (stack.Count > 0)
+            {
+                ct.ThrowIfCancellationRequested();
+                var (folder, path, depth) = stack.Pop();
+                if (path.Length == 0) continue;
+                var collecting = hits.Count < limit;
+                if (collecting && canList is not null && !canList(folder, folder == RootRecord ? Root : path)) continue;
+                files.Clear();
+                folders.Clear();
+                for (var i = start[folder]; i < start[folder + 1]; i++)
+                {
+                    var r = children[i];
+                    var attributes = _attributes[r];
+                    if (!Visible(attributes, options)) continue;
+                    if ((attributes & DirectoryAttribute) != 0)
+                    {
+                        if (depth + 1 < MaxDepth && !IsExcludedFolder(r)) folders.Add(r);
+                    }
+                    else if (wanted is not { } lookup || ExtensionOf(NameOf(r)) is { Length: > 0 } ext && lookup.Contains(ext)) files.Add(r);
+                }
+                total += files.Count;
+                if (collecting)
+                {
+                    files.Sort(byName);
+                    foreach (var r in files)
+                    {
+                        if (hits.Count >= limit) break;
+                        var filePath = string.Concat(path, "\\", NameOf(r));
+                        hits.Add(HasSizes
+                            ? new IndexHit(filePath, _attributes[r], hits.Count, _size[r], _modified[r], _created[r])
+                            : new IndexHit(filePath, _attributes[r], hits.Count));
+                    }
+                    folders.Sort(byName);
+                }
+                for (var i = folders.Count - 1; i >= 0; i--)
+                    stack.Push((folders[i], string.Concat(path, "\\", NameOf(folders[i])), depth + 1));
+            }
+            return (hits, total);
+        }
+        finally
+        {
+            ArrayPool<int>.Shared.Return(start);
+            ArrayPool<int>.Shared.Return(children);
+            _lock.ExitReadLock();
+        }
+    }
+
+    private static ReadOnlySpan<char> ExtensionOf(ReadOnlySpan<char> name)
+    {
+        var dot = name.LastIndexOf('.');
+        return dot < 0 ? default : name[(dot + 1)..];
+    }
+
+    private string? GetPathInRead(int record)
+    {
+        var buffer = new char[MaxDepth * 64];
+        var length = BuildPath(record, buffer);
+        return length < 0 ? null : new string(buffer, 0, length);
+    }
+
     // full paths of the records in this order, without those in folders canList refuses; call inside a read
     private List<IndexHit> Collect(IEnumerable<(long Key, int Record)> ordered, int limit, Func<int, string, bool>? canList, CancellationToken ct)
     {

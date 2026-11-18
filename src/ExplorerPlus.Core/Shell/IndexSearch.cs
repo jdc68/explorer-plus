@@ -14,6 +14,9 @@ public sealed class IndexSearchInfo
 
     /// <summary>The service had more matches than it returned (before its access check).</summary>
     public bool Truncated => Total > Count && Count >= Limit;
+
+    // a folder walk that stopped at the limit doesn't know how many more there are
+    public bool CutUncounted => Total < 0 && Count >= Limit;
 }
 
 /// <summary>
@@ -140,12 +143,17 @@ public static partial class IndexSearch
         info.Total = response.Total;
         info.Count = response.Hits.Count;
         info.Scanning = response.Scanning;
+        foreach (var entry in ToEntries(response.Hits, ct)) yield return entry;
+    }
 
+    // the hits as entries, in order; ones without a size or time are statted a chunk at a time
+    internal static IEnumerable<FolderEntry> ToEntries(List<SearchHit> all, CancellationToken ct)
+    {
         const int chunk = 256;
-        for (var i = 0; i < response.Hits.Count; i += chunk)
+        for (var i = 0; i < all.Count; i += chunk)
         {
             ct.ThrowIfCancellationRequested();
-            var hits = response.Hits.Skip(i).Take(chunk).ToList();
+            var hits = all.Skip(i).Take(chunk).ToList();
             var unknown = hits.Where(h => h.Size < 0 || h.Modified <= 0).Select(h => h.Path).ToList();
             var statted = unknown.Count == 0 ? null
                 : HomeFeed.StatAll(unknown, ct).Where(e => e.Path is not null).ToDictionary(e => e.Path!, StringComparer.OrdinalIgnoreCase);

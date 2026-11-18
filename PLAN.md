@@ -4,11 +4,11 @@ A fast, keyboard-friendly file manager for Windows 11, built for work and everyd
 
 ## Status (18 Nov 2026)
 
-- **Now: I19** flat view. Its "Decide with the user" lines are still open, so they are settled with the user before it is built.
-- **Then, in this order:** I20 disk usage treemap, I21 drop shelf.
+- **Now: I20** disk usage treemap. Its "Decide with the user" lines are still open, so they are settled with the user before it is built.
+- **Then:** I21 drop shelf.
 - **Backlog, only when the user asks:** I18 big, old and empty finders (postponed by the user, 18 Nov 2026), I14, Save and Open dialogs ([#9](https://github.com/jdc68/explorer-plus/issues/9)).
 - **Postponed:** M7, remote locations and plugins.
-- **Done:** M1 to M6, I1 to I13, I15 (closed for now), I16 (0.1.35), I17 (0.1.36), I22, I23 (0.1.33), I24, I25 (0.1.37, [#29](https://github.com/jdc68/explorer-plus/issues/29)). What was built, the findings and the checks made are in [HISTORY.md](HISTORY.md). What is still open from them is in section 6, under "Open checks" and "Loose ends".
+- **Done:** M1 to M6, I1 to I13, I15 (closed for now), I16 (0.1.35), I17 (0.1.36), I22, I23 (0.1.33), I24, I25 (0.1.37, [#29](https://github.com/jdc68/explorer-plus/issues/29)), I19 (0.1.38). What was built, the findings and the checks made are in [HISTORY.md](HISTORY.md). What is still open from them is in section 6, under "Open checks" and "Loose ends".
 
 How this file is kept:
 - This section is the only place that gives the order. Update it when a step starts or finishes, or when the user changes the order.
@@ -146,11 +146,6 @@ From the 14 Nov 2026 brainstorm, in the order chosen with the user (not GitHub i
 - Reuses the results tab, the sort and group by size or date, and the "N items · X" status bar from the duplicate finder. Deleting from the list goes to the Recycle Bin and removes the rows, as in the duplicate finder; there is no one-click "delete all" at first.
 - Decide with the user: whether the folders list counts a folder with only empty folders below it as empty (probably yes), and whether system, hidden and protected locations are skipped (yes, unless the user asks).
 
-**I19: flat view.**
-- A "Flat view" toggle (View menu, palette, status bar chip) that shows every file below the current folder as one list, with a Location column, as in Directory Opus. A type filter next to it ("only PDFs", "only pictures") makes it the quickest way to see everything of one kind in a project.
-- With the index service running it is a scoped index query (as with a folder search with an empty query), so a big tree lists at once; without it, a streamed walk through `FastFolderEnumerator`, cancelled on navigation like any listing. It is an app-made location like the search tabs, so deletes and renames work on its items and nothing is watched.
-- Decide with the user: the item cap (1,000 like search, or more for this view), whether folders are listed too or only files, and whether it remembers per folder that it is on.
-
 **I20: disk usage view (treemap).**
 - "Analyze this drive" (a drive tile's menu on This PC, any folder's menu, the palette): a treemap of the folder, each rectangle sized by its total, drawn from the index's folder totals (instant) and from the walk where the index can't answer (network, FAT, removable). Click a rectangle to go into it, a breadcrumb to go back up, a list beside it ordered by size, and the right-click menu of the item under the mouse (open, show in folder, delete to the Recycle Bin).
 - Colour by file kind (pictures, videos, music, documents, code, archives, other) with a legend that also filters. The treemap itself is a custom WPF control that draws the squarified layout in a `DrawingVisual` and hit-tests by rectangle, so thousands of cells stay smooth; it limits itself to the largest N children per level and groups the rest as "other".
@@ -206,6 +201,7 @@ Gathered from the finished steps; the step in brackets has the details in HISTOR
   - Removal when Explorer+ is uninstalled, a second Windows user, and results tabs restored from the session [M6].
   - The app right after the service starts, before sizes are read [I4].
   - Recent changes with real results: Update the service from Settings, then each span, Include AppData, a folder's own recent changes, the 10,000 cut on 7 days, deletes from the list, and a tab restored from the session [I17].
+- **Flat view:** the index route after updating the service from Settings (a drive root, a folder with more than 10,000 files, "(the first 10,000 of N files)"), the type bar with your own view-rule extensions, deletes and renames in the list, and the toggle in the right pane [I19].
 - **Settings:** the Settings window's buttons [I2], and switching Light and Dark while a menu is in use [I1].
 - **Toolbar:** the Command palette and Settings buttons in a split window [I23].
 - **Files in use:** a real app with unsaved work (Word, Notepad) asked to close by Force delete, a folder open in a terminal, a failed move or copy from the queue, a failed rename, Delete from the native item menu (now Explorer+'s own delete, with undo), and the PDF or Office preview pane holding the file [I16].
@@ -222,6 +218,7 @@ Known gaps left on purpose. Each one could become a step if the user wants it.
 - **Releases:**
   - Release notes are the commit subjects. Writing them by hand is still undecided.
   - Submitting the winget manifests to winget-pkgs is still done by hand [I7].
+- **Toolbar and status toggles** (Recent changes' spans, flat view and its kinds) only act on a click: UI Automation's Toggle changes their check mark without running them, so a screen reader can't use them yet [I19].
 - **Views:** List view takes about 50 ms a frame while scrolling, with smooth scrolling on or off [I10].
 - **Performance, left for later in I15:**
   - The first menu after a minute idle takes about 700 ms, because the packaged verbs' hosts start again.
@@ -245,7 +242,7 @@ src/ExplorerPlus.IndexService  LocalSystem Windows service (raw advapi32, no NuG
 src/ExplorerPlus.Core          no WPF
   Shell/                       Pidl, ShellLocation, FolderEntry, ShellNative, ShellInfoCache, ShellFilter
                                listing: FolderLoader (streaming), FastFolderEnumerator, ShellFolderEnumerator,
-                                 HomeFeed, SearchLocation, IndexSearch, RecentChanges, TagView, DuplicateFinder, ThisPc
+                                 HomeFeed, SearchLocation, IndexSearch, RecentChanges, FlatView, TagView, DuplicateFinder, ThisPc
                                actions: FileOperations, FileOpLog, ShellContextMenu, ShellClipboard, ShellDragDrop,
                                  ShellLauncher, LocationActions, Associations, LinkResolver, ShellNewTemplates,
                                  Archives, BatchRename, FolderCompare, WindowsQuickAccess, FileLocks

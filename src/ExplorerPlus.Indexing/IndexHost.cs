@@ -106,6 +106,16 @@ public sealed class IndexHost : IDisposable
             needsTimes: true);
     }
 
+    /// <summary>Every file below the request's folder, in path order. Call it impersonating the client, like <see cref="Search"/>.</summary>
+    public SearchResponse Files(FilesRequest request, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(request.Scope)) return new SearchResponse(SearchStatus.BadRequest, 0, [], false);
+        var options = new IndexSearchOptions(request.IncludeHidden, request.IncludeProtected);
+        var extensions = request.Extensions?.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return Run(request.Scope, request.Limit, "flat view",
+            (index, scope, limit, canList) => index.Files(options, scope ?? index.RootRecord, extensions, limit, canList, ct));
+    }
+
     // runs a query on every volume, or inside scope, with the client's access checks; the best keys come first
     private SearchResponse Run(string? scopePath, int requestedLimit, string what,
         Func<VolumeIndex, int?, int, Func<int, string, bool>, (List<IndexHit> Hits, int Total)> query, bool needsTimes = false)

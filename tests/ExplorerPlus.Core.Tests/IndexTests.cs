@@ -208,6 +208,54 @@ public class IndexTests
     }
 
     [Fact]
+    public void Files_request_round_trips_and_older_requests_stay_at_version_3()
+    {
+        var files = Assert.IsType<FilesRequest>(IndexProtocol.DecodeRequest(IndexProtocol.EncodeFiles(new FilesRequest(@"C:\Projects", ["jpg", "png"], 10_000, false, true))));
+        Assert.Equal((@"C:\Projects", 10_000, false, true), (files.Scope, files.Limit, files.IncludeHidden, files.IncludeProtected));
+        Assert.Equal(["jpg", "png"], files.Extensions);
+        Assert.Null(Assert.IsType<FilesRequest>(IndexProtocol.DecodeRequest(IndexProtocol.EncodeFiles(new FilesRequest(@"C:\", null, 5, true, false)))).Extensions);
+
+        // a version-3 service keeps answering these, and turns down only the files request
+        Assert.Equal(3, BitConverter.ToInt32(IndexProtocol.EncodeSearch(new SearchRequest("a", null, 1, true, false))));
+        Assert.Equal(3, BitConverter.ToInt32(IndexProtocol.EncodeRecent(new RecentRequest(null, 1, 1, true, false, true))));
+        Assert.Equal(3, BitConverter.ToInt32(IndexProtocol.EncodeFolderSizes([@"C:\"])));
+        var asVersion3 = IndexProtocol.EncodeFiles(new FilesRequest(@"C:\", null, 5, true, false));
+        BitConverter.GetBytes(3).CopyTo(asVersion3, 0);
+        Assert.Throws<InvalidDataException>(() => IndexProtocol.DecodeRequest(asVersion3));
+
+        var v3 = new StatusResponse("0.1.35", [], Protocol: 3);
+        Assert.Equal((true, false), (v3.Speaks, v3.HasFiles));
+        Assert.True(new StatusResponse("0.1.38", []).HasFiles);
+    }
+
+    [Fact]
+    public void Flat_view_lists_files_in_path_order()
+    {
+        var index = Sample();
+        index.Upsert(Ref(35), Ref(31), "readme.md", Normal);
+        index.Upsert(Ref(36), Ref(32), "App.cs", Normal);
+        index.Upsert(Ref(37), Ref(31), "zeta", Dir);
+        index.Upsert(Ref(38), Ref(37), "a.txt", Normal);
+        index.Upsert(Ref(39), Ref(31), "obj", Dir | Hidden);
+        index.Upsert(Ref(40), Ref(39), "b.cs", Normal);
+        List<string> Files(IReadOnlySet<string>? extensions = null, IndexSearchOptions? options = null, Func<int, string, bool>? canList = null) =>
+            index.Files(options ?? new IndexSearchOptions(IncludeHidden: false), 31, extensions, 100, canList).Hits.Select(h => h.Path).ToList();
+
+        Assert.Equal([@"C:\Projects\readme.md", @"C:\Projects\src\App.cs", @"C:\Projects\src\report.cs", @"C:\Projects\zeta\a.txt"], Files());
+        Assert.Equal([@"C:\Projects\obj\b.cs", @"C:\Projects\src\App.cs", @"C:\Projects\src\report.cs"],
+            Files(new HashSet<string> { "CS" }, new IndexSearchOptions(IncludeHidden: true)));
+        Assert.Equal([@"C:\Projects\readme.md", @"C:\Projects\zeta\a.txt"], Files(canList: (_, path) => !path.EndsWith(@"\src")));
+
+        var cut = index.Files(new IndexSearchOptions(IncludeHidden: false), 31, null, 2);
+        Assert.Equal((2, 4), (cut.Hits.Count, cut.Total));
+        Assert.Equal([0L, 1L], cut.Hits.Select(h => h.Key));
+
+        // the whole drive: the Recycle Bin never, hidden folders by the options
+        Assert.Equal([@"C:\Users\denis\AppData\cache.pdf", @"C:\Users\denis\Documents\report.pdf"],
+            index.Files(new IndexSearchOptions(IncludeHidden: true), index.RootRecord, new HashSet<string> { "pdf" }, 100).Hits.Select(h => h.Path));
+    }
+
+    [Fact]
     public void Folder_sizes_add_up_and_follow_changes()
     {
         var index = Sample();

@@ -23,6 +23,9 @@ public sealed record FolderSizesRequest(List<string> Paths) : IndexRequest;
 /// <summary>What changed since <paramref name="Since"/> (a FILETIME), newest first; answered with a <see cref="SearchResponse"/>.</summary>
 public sealed record RecentRequest(string? Scope, long Since, int Limit, bool IncludeHidden, bool IncludeProtected, bool IncludeAppData) : IndexRequest;
 
+/// <summary>Every file below <paramref name="Scope"/> in path order, optionally only some extensions (no dot); answered with a <see cref="SearchResponse"/>.</summary>
+public sealed record FilesRequest(string Scope, List<string>? Extensions, int Limit, bool IncludeHidden, bool IncludeProtected) : IndexRequest;
+
 // Size -1 and Modified 0 mean unknown (sizes still being read)
 public sealed record SearchHit(string Path, uint Attributes, long Size = -1, long Modified = 0, long Created = 0)
 {
@@ -38,7 +41,10 @@ public sealed record VolumeStatus(string Root, VolumeState State, int Count, str
 /// <param name="Protocol">The requests the service understands; 2 for a service from before this field.</param>
 public sealed record StatusResponse(string Version, List<VolumeStatus> Volumes, int Protocol = IndexProtocol.ProtocolVersion)
 {
-    public bool Speaks => Protocol == IndexProtocol.ProtocolVersion;
+    /// <summary>Understands search, recent changes and folder sizes as this app sends them.</summary>
+    public bool Speaks => Protocol >= IndexProtocol.RequestVersion;
+
+    public bool HasFiles => Protocol >= IndexProtocol.FilesVersion;
 }
 
 /// <summary>
@@ -48,7 +54,12 @@ public sealed record StatusResponse(string Version, List<VolumeStatus> Volumes, 
 public static class IndexProtocol
 {
     public const string PipeName = "ExplorerPlus.Index";
-    public const int ProtocolVersion = 3;
+    public const int ProtocolVersion = 4;
+
+    // requests a version-3 service also takes are still sent as 3, so it keeps serving them until it is updated
+    public const int RequestVersion = 3;
+    public const int FilesVersion = 4;
+    public const int MaxExtensions = 1000;
 
     // status requests keep the first version's number, so an older service still says which version it is
     private const int StatusVersion = 2;
@@ -58,11 +69,11 @@ public static class IndexProtocol
 
     public static string Version => typeof(IndexProtocol).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
 
-    private const byte KindSearch = 1, KindStatus = 2, KindFolderSizes = 3, KindRecent = 4;
+    private const byte KindSearch = 1, KindStatus = 2, KindFolderSizes = 3, KindRecent = 4, KindFiles = 5;
 
     public static byte[] EncodeSearch(SearchRequest request) => Encode(w =>
     {
-        w.Write(ProtocolVersion);
+        w.Write(RequestVersion);
         w.Write(KindSearch);
         w.Write(request.Query);
         w.Write(request.Scope ?? "");
@@ -73,7 +84,7 @@ public static class IndexProtocol
 
     public static byte[] EncodeRecent(RecentRequest request) => Encode(w =>
     {
-        w.Write(ProtocolVersion);
+        w.Write(RequestVersion);
         w.Write(KindRecent);
         w.Write(request.Scope ?? "");
         w.Write(request.Since);
@@ -81,6 +92,18 @@ public static class IndexProtocol
         w.Write(request.IncludeHidden);
         w.Write(request.IncludeProtected);
         w.Write(request.IncludeAppData);
+    });
+
+    public static byte[] EncodeFiles(FilesRequest request) => Encode(w =>
+    {
+        w.Write(FilesVersion);
+        w.Write(KindFiles);
+        w.Write(request.Scope);
+        w.Write(request.Extensions?.Count ?? -1);
+        foreach (var ext in request.Extensions ?? []) w.Write(ext);
+        w.Write(request.Limit);
+        w.Write(request.IncludeHidden);
+        w.Write(request.IncludeProtected);
     });
 
     public static byte[] EncodeStatusRequest() => Encode(w =>
@@ -91,7 +114,7 @@ public static class IndexProtocol
 
     public static byte[] EncodeFolderSizes(IReadOnlyList<string> paths) => Encode(w =>
     {
-        w.Write(ProtocolVersion);
+        w.Write(RequestVersion);
         w.Write(KindFolderSizes);
         w.Write(paths.Count);
         foreach (var path in paths) w.Write(path);
@@ -104,7 +127,27 @@ public static class IndexProtocol
         var version = r.ReadInt32();
         var kind = r.ReadByte();
         if (kind == KindStatus && version >= StatusVersion) return new StatusRequest();
-        if (version != ProtocolVersion) throw new InvalidDataException("Unsupported protocol version.");
+        if (version < RequestVersion || version > ProtocolVersion || kind == KindFiles && version < FilesVersion)
+            throw new InvalidDataException("Unsupported protocol version.");
+        if (kind == KindFiles)
+        {
+            var scopePath = r.ReadString();
+            if (scopePath.Length is 0 or > 32767) throw new InvalidDataException("Bad scope.");
+            var count = r.ReadInt32();
+            if (count < -1 || count > MaxExtensions) throw new InvalidDataException("Too many extensions.");
+            List<string>? extensions = null;
+            if (count >= 0)
+            {
+                extensions = new List<string>(count);
+                for (var i = 0; i < count; i++)
+                {
+                    var ext = r.ReadString();
+                    if (ext.Length > 64) throw new InvalidDataException("Extension too long.");
+                    extensions.Add(ext);
+                }
+            }
+            return new FilesRequest(scopePath, extensions, r.ReadInt32(), r.ReadBoolean(), r.ReadBoolean());
+        }
         if (kind == KindRecent)
         {
             var scopePath = r.ReadString();
