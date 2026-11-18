@@ -1,0 +1,74 @@
+<Window x:Class="ExplorerPlus.App.Views.ShelfWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Shelf - Explorer+" Width="220" Height="280"
+        WindowStyle="None" ResizeMode="NoResize" AllowsTransparency="True" Background="Transparent"
+        Topmost="True" ShowInTaskbar="False" ShowActivated="False" AllowDrop="True"
+        UseLayoutRounding="True" TextOptions.TextFormattingMode="Display"
+        DragEnter="OnDragOver" DragOver="OnDragOver" DragLeave="OnDragLeave" Drop="OnDrop">
+
+    <Border x:Name="Card" CornerRadius="8" BorderThickness="1" Padding="6"
+            Background="{DynamicResource SolidBackgroundFillColorBaseBrush}" BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <Grid Grid.Row="0" Background="Transparent" MouseLeftButtonDown="OnHeaderMouseDown" Margin="0,0,0,4">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Border x:Name="AllHandle" CornerRadius="4" Padding="6,3" Background="{DynamicResource SubtleFillColorSecondaryBrush}"
+                        Cursor="Hand" ToolTip="Drag out everything on the shelf"
+                        PreviewMouseLeftButtonDown="OnAllHandleMouseDown" PreviewMouseMove="OnAllHandleMouseMove">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="&#xE7B8;" FontFamily="{StaticResource IconFont}" FontSize="13" VerticalAlignment="Center" Margin="0,0,6,0" />
+                        <TextBlock x:Name="CountText" Text="Shelf" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Border>
+                <Button x:Name="MenuButton" Grid.Column="2" Style="{StaticResource IconButton}" Content="&#xE712;" Click="OnMenuClick"
+                        ToolTip="Shelf options" AutomationProperties.Name="Shelf options" />
+                <Button Grid.Column="3" Style="{StaticResource IconButton}" Content="&#xE711;" Click="OnCloseClick"
+                        ToolTip="Clear the shelf and close it" AutomationProperties.Name="Close shelf" />
+            </Grid>
+
+            <Border x:Name="EmptyHint" Grid.Row="1" CornerRadius="6" BorderThickness="1"
+                    BorderBrush="{DynamicResource ControlStrongStrokeColorDefaultBrush}">
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                    <TextBlock Text="&#xE896;" FontFamily="{StaticResource IconFont}" FontSize="28" HorizontalAlignment="Center"
+                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                    <TextBlock Text="Drop files here" Margin="0,8,0,0" HorizontalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                </StackPanel>
+            </Border>
+
+            <ListBox x:Name="List" Grid.Row="1" SelectionMode="Extended" Background="Transparent" BorderThickness="0"
+                     AutomationProperties.Name="Shelf items" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     PreviewMouseLeftButtonDown="OnListMouseDown" PreviewMouseMove="OnListMouseMove" PreviewMouseLeftButtonUp="OnListMouseUp"
+                     MouseDoubleClick="OnListDoubleClick" KeyDown="OnListKeyDown" ContextMenuOpening="OnListMenu">
+                <ListBox.ContextMenu>
+                    <ContextMenu />
+                </ListBox.ContextMenu>
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                        <Setter Property="Padding" Value="6,3" />
+                        <Setter Property="Margin" Value="0" />
+                        <Setter Property="ToolTip" Value="{Binding Path}" />
+                        <Setter Property="AutomationProperties.Name" Value="{Binding Name}" />
+                    </Style>
+                </ListBox.ItemContainerStyle>
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Orientation="Horizontal">
+                            <Image Source="{Binding Icon}" Width="20" Height="20" Margin="0,0,8,0" VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" MaxWidth="150" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Grid>
+    </Border>
+</Window>

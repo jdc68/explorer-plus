@@ -258,6 +258,17 @@ public partial class MainWindow
         catch (Exception ex) { ViewModel.ShowNotice(ex.Message); }
     }
 
+    private void AddToShelf(IReadOnlyList<ItemViewModel> items)
+    {
+        var paths = items.Select(i => i.Entry.Path).OfType<string>().Where(Path.IsPathFullyQualified).ToList();
+        if (paths.Count == 0)
+        {
+            ViewModel.ShowNotice("Only files and folders on a drive or a share can go on the shelf.");
+            return;
+        }
+        ShelfWindow.Add(paths, this);
+    }
+
     // a treemap and sunburst of the folder or drive, in its own window
     private void AnalyzeDiskUsage(string? folder = null)
     {
@@ -296,6 +307,7 @@ public partial class MainWindow
         public const string Tag = SidebarViewModel.TagGlyph;
         public const string Duplicates = "\uE8C8";
         public const string DiskUsage = "\uEB05";
+        public const string Shelf = "\uE7B8";
         public const string Compare = "\uE8AB";
         public const string Folder = "";
         public const string Tab = "";
@@ -347,6 +359,8 @@ public partial class MainWindow
             Add("Quick Look", ToggleQuickLook, "Space", "");
         }
         Add("Copy as path", () => ViewModel.CopyPaths(selection), "Ctrl+Shift+C", "");
+        if (selection.Count > 0) Add("Add to shelf", () => AddToShelf(selection), "Ctrl+Shift+S", Glyphs.Shelf);
+        Add("Show shelf", () => ShelfWindow.ShowShelf(this), null, Glyphs.Shelf);
         Add(selection.Count > 0 && selection.All(i => i.IsStarred) ? "Remove from Starred" : "Add to Starred", () => ViewModel.ToggleStar(selection), "Ctrl+D", Glyphs.Star);
         Add("Properties", ShowProperties, "Alt+Enter", "");
         var paths = selection.Select(i => i.Entry.Path).OfType<string>().ToList();

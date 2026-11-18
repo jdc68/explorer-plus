@@ -5,6 +5,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
+using ExplorerPlus.App.Services;
 using ExplorerPlus.App.ViewModels;
 using ExplorerPlus.Core.Shell;
 using ExplorerPlus.Interop;
@@ -59,13 +60,30 @@ public partial class MainWindow
         var paths = items.Select(i => i.Entry.Path).ToList();
         _internalDragPaths = paths.All(p => p is not null) ? paths.OfType<string>().ToList() : null;
         Mouse.Capture(null);
+        if (AppSettings.Current.ShelfOnDrag && _internalDragPaths is not null) ShelfWindow.ShowForDrag(this);
         try { ShellDragDrop.DoDrag(pidls, _hwnd); }
         catch (Exception ex) { ViewModel.ShowNotice(ex.Message); }
         finally
         {
+            ShelfWindow.DragEnded();
             _dragging = null;
             _internalDragPaths = null;
             // the drag is over, so no window may still hold a drag image or a hovered target
+            foreach (var window in App.MainWindows) window.EndDragHere(false);
+        }
+    }
+
+    private static bool _internalDropQueued;
+
+    /// <summary>A drag out of the shelf, handled like one from a window: drops into Explorer+ folders go through the queue.</summary>
+    internal static (uint Effect, bool Queued) DragFromShelf(IReadOnlyList<Pidl> pidls, List<string> paths, IntPtr hwnd)
+    {
+        _internalDragPaths = paths;
+        _internalDropQueued = false;
+        try { return (ShellDragDrop.DoDrag(pidls, hwnd), _internalDropQueued); }
+        finally
+        {
+            _internalDragPaths = null;
             foreach (var window in App.MainWindows) window.EndDragHere(false);
         }
     }
@@ -217,6 +235,7 @@ public partial class MainWindow
         ReleaseDragData();
         e.Effects = DragDropEffects.None;
         var files = paths.ToList();
+        _internalDropQueued = true;
         // After the drag's modal loop has returned, so the source window isn't left waiting on the queue.
         Dispatcher.BeginInvoke(DispatcherPriority.Background, async () =>
             await ViewModel.TransferAsync(files, folder.Pidl, folder.Path, folder.Name, move));

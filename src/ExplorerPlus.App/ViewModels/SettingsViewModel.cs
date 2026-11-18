@@ -74,6 +74,7 @@ public sealed class SettingsViewModel : ObservableObject
     public bool QueueTransfers { get => S.QueueTransfers; set => Change(() => S.QueueTransfers = value); }
     public bool SmoothScrolling { get => S.SmoothScrolling; set => Change(() => S.SmoothScrolling = value); }
     public bool RestoreSession { get => S.RestoreSession; set => Change(() => S.RestoreSession = value); }
+    public bool ShelfOnDrag { get => S.ShelfOnDrag; set => Change(() => S.ShelfOnDrag = value); }
 
     // ---------- Preview ----------
 

@@ -36,6 +36,7 @@ public partial class MainWindow : Window
     public MainWindow(IReadOnlyList<string> targets, string? select)
     {
         InitializeComponent();
+        Activated += (_, _) => ShelfWindow.LastMain = this;
         InitPanes();
         var hover = new HoverPreview(this);
         hover.Attach(LeftList);
@@ -1046,6 +1047,7 @@ public partial class MainWindow : Window
     private const int CmdRemoveFrequent = ShellContextMenu.FirstCustomId + 16;
     private const int CmdWhatIsUsing = ShellContextMenu.FirstCustomId + 17;
     private const int CmdDiskUsage = ShellContextMenu.FirstCustomId + 18;
+    private const int CmdShelf = ShellContextMenu.FirstCustomId + 19;
     private const int CmdCompressBase = ShellContextMenu.FirstCustomId + 20; // + (int)ArchiveFormat
     private const int CmdTagBase = ShellContextMenu.FirstCustomId + 200;
     private const int CmdChoiceLimit = 50;
@@ -1219,6 +1221,9 @@ public partial class MainWindow : Window
             case MenuResultKind.Custom when result.CustomId == CmdDiskUsage:
                 AnalyzeDiskUsage(items[0].Entry.Path);
                 break;
+            case MenuResultKind.Custom when result.CustomId == CmdShelf:
+                AddToShelf(items);
+                break;
             case MenuResultKind.Custom when result.CustomId == CmdOpenInOther:
                 await OpenInOtherPaneAsync(items[0]);
                 break;
@@ -1272,6 +1277,8 @@ public partial class MainWindow : Window
         }
         if (items is [{ IsFolder: true, Entry.Path: { } folder }] && Path.IsPathFullyQualified(folder))
             custom.Add(new CustomMenuItem { Text = "Analyze disk usage", Id = CmdDiskUsage });
+        if (items.Count > 0 && items.All(i => i.Entry.Path is { } p && Path.IsPathFullyQualified(p)))
+            custom.Add(new CustomMenuItem { Text = "Add to shelf", Id = CmdShelf });
         if (TaggablePaths(items) is { Count: > 0 } taggable && taggable.Count == items.Count)
         {
             var tags = Tags.Names.Take(CmdChoiceLimit).ToList();
@@ -1637,6 +1644,8 @@ public partial class MainWindow : Window
                 e.Handled = true; await ViewModel.PasteAsync(); break;
             case Key.C when mods == (ModifierKeys.Control | ModifierKeys.Shift):
                 e.Handled = true; ViewModel.CopyPaths(Selection); break;
+            case Key.S when mods == (ModifierKeys.Control | ModifierKeys.Shift):
+                e.Handled = true; AddToShelf(Selection); break;
             case Key.Delete when mods is ModifierKeys.None or ModifierKeys.Shift:
                 e.Handled = true; await ViewModel.DeleteAsync(Selection, permanent: mods == ModifierKeys.Shift); break;
             case Key.F2 when mods == ModifierKeys.None && FileList.SelectedItems.Count > 1:

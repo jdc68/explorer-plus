@@ -70,6 +70,8 @@
                     <TextBlock Text="Off: each folder opened from another app gets its own window, as in File Explorer." Style="{StaticResource Hint}" />
                     <CheckBox Content="Reopen the tabs from last time" IsChecked="{Binding RestoreSession}" />
                     <TextBlock Text="Off: closing a window closes its tabs, and the next window starts fresh." Style="{StaticResource Hint}" />
+                    <CheckBox Content="Show the shelf when you start dragging files" IsChecked="{Binding ShelfOnDrag}" />
+                    <TextBlock Text="Drop files on it, go to another folder, and drag them out again. Off: open it from the palette or with Ctrl+Shift+S." Style="{StaticResource Hint}" />
                 </StackPanel>
             </Border>
             <Border Style="{StaticResource Card}">

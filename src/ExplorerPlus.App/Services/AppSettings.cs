@@ -50,6 +50,11 @@ public sealed class AppSettings
     /// <summary>Reopen last time's tabs. Off by default: closing the last window closes its tabs, like File Explorer.</summary>
     public bool RestoreSession { get; set; }
 
+    // paths on the drop shelf
+    public List<string> Shelf { get; set; } = [];
+
+    public bool ShelfOnDrag { get; set; } = true;
+
     /// <summary>Stay running with no window after the last one closes, so folders open instantly.</summary>
     public bool KeepRunningInBackground { get; set; } = true;
 
