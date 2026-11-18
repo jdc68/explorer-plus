@@ -29,6 +29,7 @@ public sealed class ShelfItem(string path) : ObservableObject
 public partial class ShelfWindow : Window
 {
     private const double Gap = 8;
+    private const double ShadowMargin = 12;
 
     private static ShelfWindow? _instance;
 
@@ -104,10 +105,10 @@ public partial class ShelfWindow : Window
             User32.GetMonitorInfoW(monitor, ref info);
             var scale = User32.GetDpiForMonitor(monitor, User32.MDT_EFFECTIVE_DPI, out var dpi, out _) == 0 ? dpi / 96.0 : 1;
             var work = info.rcWork;
-            var (w, h, gap) = ((int)(Width * scale), (int)(Height * scale), (int)(Gap * scale));
-            // beside the window's right edge, or just inside it when there's no room (maximized)
-            var x = r.Right + gap + w <= work.Right ? r.Right + gap : Math.Max(work.Left, r.Right - w - 3 * gap);
-            var y = Math.Clamp(r.Top + (r.Bottom - r.Top - h) / 2, work.Top, Math.Max(work.Top, work.Bottom - h));
+            var (w, h, gap, m) = ((int)(Width * scale), (int)(Height * scale), (int)(Gap * scale), (int)(ShadowMargin * scale));
+            // the card, not the shadow margin, goes beside the window's right edge, or just inside it when there's no room (maximized)
+            var x = r.Right + gap + w - 2 * m <= work.Right ? r.Right + gap - m : Math.Max(work.Left - m, r.Right - w + m - 3 * gap);
+            var y = Math.Clamp(r.Top + (r.Bottom - r.Top - h) / 2, work.Top - m, Math.Max(work.Top - m, work.Bottom - h + m));
             User32.SetWindowPos(hwnd, User32.HWND_TOPMOST, x, y, 0, 0, User32.SWP_NOSIZE | User32.SWP_NOACTIVATE);
         }
         Show();
@@ -263,8 +264,8 @@ public partial class ShelfWindow : Window
             else _helper.DragOver(ref pt, (uint)e.Effects);
         }
         catch { }
-        Card.BorderBrush = e.Effects == DragDropEffects.None
-            ? (Brush)FindResource("CardStrokeColorDefaultBrush") : (Brush)FindResource("AccentFillColorDefaultBrush");
+        Card.SetResourceReference(Border.BorderBrushProperty, e.Effects == DragDropEffects.None
+            ? "SurfaceStrokeColorDefaultBrush" : "AccentFillColorDefaultBrush");
     }
 
     private void OnDragLeave(object sender, DragEventArgs e)
@@ -289,7 +290,7 @@ public partial class ShelfWindow : Window
     private void EndDrop()
     {
         _helperEntered = false;
-        Card.BorderBrush = (Brush)FindResource("CardStrokeColorDefaultBrush");
+        Card.SetResourceReference(Border.BorderBrushProperty, "SurfaceStrokeColorDefaultBrush");
         if (_dropData == IntPtr.Zero) return;
         Marshal.Release(_dropData);
         _dropData = IntPtr.Zero;
